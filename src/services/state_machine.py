@@ -140,10 +140,16 @@ async def transition_payout_request_status(
     db: AsyncSession,
     request: PayoutRequestModel,
     new_status: PayoutRequestStatus,
-    decided_by: Optional[str] = None
+    decided_by: Optional[str] = None,
+    expected_old_status: Optional[PayoutRequestStatus] = None
 ) -> PayoutRequestModel:
-    """Executes state transition with strict transition guards, maintaining task status and budget holds."""
-    old_status = request.status
+    """
+    Executes state transition with atomic Compare-and-Set (CAS).
+    Only if exactly 1 row changed in the database will budget and task updates be applied.
+    If 0 rows changed (another concurrent writer won the transition), treats as already transitioned
+    and returns without touching budget holds.
+    """
+    old_status = expected_old_status or request.status
     if old_status == new_status:
         return request
 
@@ -157,6 +163,30 @@ async def transition_payout_request_status(
             }
         )
 
+    # Atomic Compare-and-Set in database
+    cas_values = {"status": new_status}
+    if decided_by:
+        cas_values["decided_by"] = decided_by
+
+    cas_stmt = (
+        update(PayoutRequestModel)
+        .where(
+            PayoutRequestModel.payout_request_id == request.payout_request_id,
+            PayoutRequestModel.status == old_status
+        )
+        .values(**cas_values)
+    )
+    cas_res = await db.execute(cas_stmt)
+    if cas_res.rowcount == 0:
+        # Race lost: another writer already updated the status in DB
+        await db.refresh(request)
+        return request
+
+    # Update in-memory object attributes
+    request.status = new_status
+    if decided_by:
+        request.decided_by = decided_by
+
     # Fetch associated task
     stmt = select(TaskModel).where(TaskModel.task_id == request.task_id)
     res = await db.execute(stmt)
@@ -166,7 +196,7 @@ async def transition_payout_request_status(
         request.created_at.strftime("%Y-%m-%d-%H") if request.created_at else get_current_hour_window()
     )
 
-    # Handle budget and task transitions first; assign new_status only upon success
+    # Handle budget and task transitions only for the CAS winner
     if new_status == PayoutRequestStatus.PAID:
         if task:
             task.status = TaskStatus.PAID
@@ -190,10 +220,6 @@ async def transition_payout_request_status(
     elif new_status == PayoutRequestStatus.SUBMITTED:
         if task:
             task.status = TaskStatus.PAYOUT_IN_PROGRESS
-
-    request.status = new_status
-    if decided_by:
-        request.decided_by = decided_by
 
     await db.flush()
     return request

@@ -198,7 +198,10 @@ class PayPalClient:
         """Retrieve batch status and item details."""
         if self.is_mock:
             if payout_batch_id in self._mock_batches:
-                return self._mock_batches[payout_batch_id]
+                val = self._mock_batches[payout_batch_id]
+                if isinstance(val, Exception):
+                    raise val
+                return val
             # Fallback mock batch
             return {
                 "batch_header": {

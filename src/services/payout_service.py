@@ -17,6 +17,7 @@ from src.services.guardian import (
 )
 from src.services.state_machine import transition_payout_request_status
 from src.services.paypal_client import paypal_client
+from src.services.poller import extract_payout_batch_id_from_error
 
 async def dispatch_payout(
     db: AsyncSession,
@@ -92,10 +93,20 @@ async def dispatch_payout(
             await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
             await db.commit()
         elif 400 <= exc.response.status_code < 500:
-            # Definite PayPal rejection (4xx): route through state machine to release budget & reopen task
-            payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_ERROR: {exc.response.text}"]
-            await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
-            await db.commit()
+            # Check if this 4xx error is duplicate sender_batch_id (money was already sent!)
+            batch_id = extract_payout_batch_id_from_error(exc.response.text)
+            if batch_id:
+                # Recover original batch_id, preserve SUBMITTED, and let the poller reconcile it
+                payout_req.payout_batch_id = batch_id
+                payout_req.decision_reasons = (payout_req.decision_reasons or []) + [
+                    f"PAYPAL_DUPLICATE_BATCH_RECOVERED: Recovered original batch {batch_id}"
+                ]
+                await db.commit()
+            else:
+                # Definite PayPal rejection (4xx): route through state machine to release budget & reopen task
+                payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_ERROR: {exc.response.text}"]
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+                await db.commit()
         else:
             # 5xx error: transient/ambiguous failure; keep SUBMITTED for reconciliation
             payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {exc.response.text}"]

@@ -26,9 +26,16 @@
 
 ### Remaining M1 Vertical Slice Items (Tracked Before M2 Guardian Depth)
 - [x] 6. Reconciliation Poller (`src/services/poller.py`): Periodic poller query (`GET /v1/payments/payouts/{id}`) updating live batch/item statuses to allow live sandbox payouts to progress from `SUBMITTED` to terminal states. Implements Write-Ahead `SUBMITTED` commit pattern and recovers ambiguous cancellations after 504 timeouts.
-- [x] 7. Demo Seed Data Script (`src/seed.py`): Seeds demo agents (`agent-code-reviewer-01`, `agent-data-labeler-02`), tasks (`task-pr-audit-101`, `task-high-value-102`), and recipient email dynamically configured from `SANDBOX_RECIPIENT_EMAIL`.
-- [x] 8. Operator Console Page (`src/static/index.html`): AG Grid layout displaying real-time task and payout-request status, budget burn metrics, and interactive HITL Approve/Reject and Cancel action buttons.
-- [x] 9. Demo Agent Script (`scripts/demo_agent.py`): Standalone scripted agent demonstrating happy path (auto-approval), high-value escalation (HITL queue), and adversarial over-budget defense.
+- [x] 7. Demo Seed Data Script (`src/seed.py`): Seeds demo agents (`agent-code-reviewer-01`, `agent-data-labeler-02`), tasks (`task-pr-audit-101`, `task-high-value-102`), and recipient email dynamically configured from `SANDBOX_RECIPIENT_EMAIL`. Includes `--reset` CLI flag to wipe test state between runs.
+- [x] 8. Operator Console Page (`src/static/index.html`): AG Grid layout displaying real-time task and payout-request status, budget burn metrics, and interactive HITL Approve/Reject and Cancel action buttons. Removed hardcoded credentials in favor of localStorage.
+- [x] 9. Demo Agent Script (`scripts/demo_agent.py`): Standalone scripted agent demonstrating happy path (auto-approval), high-value escalation (HITL queue), and adversarial over-budget defense. Supports `--salt` parameter to prevent artifact collision on repeat rehearsals.
+- [x] 9b. Concurrency & Operational Hardening (P1–P6 Resolved):
+  - **Atomic Compare-and-Set (P1)**: Atomic SQL CAS (`UPDATE ... WHERE id = :id AND status = :old_status`) eliminates double-spend budget races between dispatcher and poller.
+  - **Savepoint Isolation (P2)**: Per-row savepoints (`db.begin_nested()`) isolate exceptions in poller cycles so one failing row does not abort the batch.
+  - **Stuck SUBMITTED Recovery (P3)**: Stuck payouts lacking batch IDs after 60s are safely re-posted with stored IDs; 400 DUPLICATE_REQUEST_ID parses PayPal batch ID rather than failing.
+  - **Unclaimed Backoff (P4)**: UNCLAIMED requests older than 10 minutes throttle to 1-hour sweeps.
+  - **Production Security (P5)**: Random token generation and secret log suppression under production; frontend token prefill removed.
+  - **Rehearsal Idempotency (P6)**: `seed.py --reset` clears incidents/holds for clean rehearsal runs.
 - [ ] 10. Live Sandbox Verification: End-to-end sandbox verification reaching `PAID` status against `https://api-m.sandbox.paypal.com`.
 
 ### Logged Milestone 3 Tasks (Deploy & Polish)
