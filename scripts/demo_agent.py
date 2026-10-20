@@ -6,6 +6,12 @@ import time
 import uuid
 import httpx
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_AGENT_ID = "agent-code-reviewer-01"
 DEFAULT_API_KEY = "pa_demo_agent_key_secret_123"
