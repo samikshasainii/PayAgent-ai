@@ -1,215 +1,307 @@
-# SYSTEM ARCHITECTURE: PayPilot AI
-## Autonomous Agentic Treasury & Multi-Party Payout Engine
+# SYSTEM ARCHITECTURE: PayAgent AI
+## Spend-Control Guardian for AI Agents, Settled on PayPal Payouts
+
+> **Revision 2 (pivot locked).** PYUSD is demoted to roadmap (§9). PayPal Payouts v1 is the only settlement rail.
+> Decisions captured here are canonical; if another file disagrees, this file wins and the other file is a bug.
 
 ---
 
-## 1. Executive Summary & Hackathon Strategy
+## 1. Problem, Audience & Solution
 
-### 1.1 The Target Problem
-Global payouts for marketplaces, affiliate networks, creator platforms, and distributed teams remain a massive operational bottleneck. Businesses disburse billions annually via fragmented spreadsheets, manual calculations, and error-prone administrative dashboards. This introduces three severe failure modes:
-1. **Fat-Finger & Duplicate Errors:** High-volume batch payouts frequently double-pay recipients or disburse to mistyped addresses.
-2. **Compliance & Fraud Latency:** Lack of pre-disbursal anomaly screening results in unauthorized or threshold-violating transactions.
-3. **Operational Drag:** Gathering multi-source performance data (e.g. hackathon winners, gig shifts, affiliate commissions) and converting it into validated payment orders takes hours of manual formatting.
+### 1.1 Problem
+Teams are starting to let AI agents complete paid work: closing bounties, labeling data, reviewing code. Paying for that work today forces a bad choice:
+1. **Give the agent payment credentials** → runaway spend from loops, hallucinated duplicates, or prompt injection that redirects funds.
+2. **Approve every payout by hand** → the human becomes the bottleneck the agent was meant to remove.
 
-### 1.2 Our Solution: PayPilot AI
-**PayPilot AI** is an autonomous, multi-agent financial operations engine that ingests unstructured natural language or raw tabular records, executes strict deterministic compliance audits, and dispatches multi-party disbursements via the **PayPal Payouts REST API** with an asynchronous **Webhook Feedback Loop** and an explicit **Human-in-the-Loop (HITL) Safety Gate**.
+### 1.2 Audience
+**Operators** (a small engineering team, open-source maintainer, or data-ops lead) who post paid tasks that AI agents fulfil, and who pay the agent's owner or a contractor through PayPal.
 
-### 1.3 Engineering the Competitive Edge
-Grounded in our Phase 1 reconnaissance, PayPilot AI directly fulfills the five hackathon evaluation pillars:
-- **Technological Implementation:** Dual integration of PayPal Payouts API and asynchronous Webhook event listeners, orchestrated by a multi-agent state graph with Pydantic-enforced financial contracts and idempotent batch tracking.
-- **Design & Polish:** Modern executive treasury dashboard featuring an interactive data grid (incorporating sponsor AG Grid / Postman paradigms) for real-time auditability.
-- **Potential Impact:** Solves high-friction enterprise and SME cash disbursement with measurable ROI (sub-second batch construction vs. manual multi-hour processing).
-- **Innovation:** Transitioning commerce from passive "pay-me" buttons to active, autonomous agentic fund distribution with risk-scored approvals.
-- **Sponsor Tracks:** Out-of-the-box support for **Postman** (complete API collection and test environment) and **Render** (one-click `render.yaml` deployment specification).
+### 1.3 Solution
+PayAgent is the **only component that holds PayPal credentials**. Agents never see them. An agent can only ask to be paid **against a task the operator already funded**, to **the recipient the operator already chose**, for **at most the budget the operator already set**. Inside that envelope, PayAgent decides whether to pay instantly or escalate to a human.
+
+| Who decides | What |
+| :--- | :--- |
+| Operator (task registry) | Task, budget, allowed recipient, required deliverables, assigned agent |
+| Agent | *Only* which task it claims and the deliverables it submits |
+| Guardian Gate 1 (deterministic code) | Hard reject — LLM never invoked |
+| Guardian Gate 2 (LLM) | Can **escalate** to a human, can **never** approve beyond Gate 1 |
+| Human (dashboard) | Approve or reject escalated requests |
 
 ---
 
-## 2. Tech Stack & Justification
+## 2. Tech Stack
 
-| Layer | Technology | Selection Rationale & Advantages |
+| Layer | Technology | Notes |
 | :--- | :--- | :--- |
-| **Language** | Python 3.11+ (Detected: 3.15) | Industry standard for financial AI, data processing, and enterprise SDK support. |
-| **API Framework** | **FastAPI** + **Uvicorn** | High-throughput asynchronous performance, native Pydantic integration, automatic OpenAPI/Swagger documentation, and native async webhook endpoints. |
-| **Agent / Orchestration** | **LangChain / LangGraph** + **Pydantic v2** | Enforces deterministic schema validation over probabilistic LLM output; provides state machine support for Human-in-the-Loop pause/resume states. |
-| **LLM Inference** | **OpenAI / Anthropic / Gemini API** (Flexible Router) | Multi-model routing allowing low-latency entity extraction (e.g. GPT-4o-mini / Claude 3.5 Haiku) with zero vendor lock-in. |
-| **Financial Engine** | **PayPal Payouts REST API v1** + **Webhooks** | Official PayPal sandbox-verified disbursal engine utilizing OAuth2 token caching, batch status polling, and asynchronous event callbacks. |
-| **Persistence** | **SQLite** + **SQLAlchemy (Async)** | Zero-overhead, transactional ACID storage for batch states, individual disbursal items, webhook audit events, and idempotency keys. |
-| **Interactive UI** | **FastAPI + Modern Web Dashboard (Tailwind + AG Grid)** | Clean, responsive executive treasury terminal providing dense financial auditing, batch approval switches, and live event streaming. |
-| **DevOps / Sponsors** | **Render** (`render.yaml`) & **Postman** (Collection v2.1) | Direct alignment with hackathon sponsor categories for bonus points and frictionless evaluation. |
+| Language | Python 3.11 | Matches `render.yaml` `PYTHON_VERSION`. |
+| API | FastAPI + Uvicorn (**single worker**) | Single worker is a documented assumption of the budget-reservation design (§5.3). |
+| Agent interface | REST **and** an MCP server exposed by PayAgent (`mcp` Python SDK) | Lets any MCP-capable agent request payment without custom glue (§6.5). |
+| Proof-of-Task review | LangChain + `with_structured_output` (OpenAI `gpt-4o-mini` default) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
+| Settlement | PayPal Payouts v1 (`POST /v1/payments/payouts`, `GET /v1/payments/payouts/{id}`) | USD only in v1. |
+| Status updates | PayPal webhooks (RSA-verified) **+** reconciliation poller | Poller is the source of truth when no public URL exists (local judging). |
+| Persistence | SQLAlchemy async; **SQLite default**, Postgres optional via `DATABASE_URL` | Judges run locally with zero setup; hosted demo may point at a persistent Postgres (e.g. Neon). |
+| Dashboard | Static HTML + AG Grid Community, live updates via **SSE** | No frontend build step. |
+| Sponsor tools | AG Grid, Postman, Render | See §8. |
 
 ---
 
-## 3. System Architecture & Data Flow
-
-### 3.1 Component Architecture Diagram
+## 3. Component Flow
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer ["1. Ingestion & Interface Layer"]
-        UI["Executive Treasury Terminal\n(Interactive UI / AG Grid)"]
-        NLPrompt["Natural Language Instruction\n('Pay top 5 creators...')"]
-        FileDrop["Data Ingestion\n(CSV / JSON / Timesheet)"]
+    Operator["Operator\n(creates & funds tasks)"] -->|POST /api/v1/tasks| Registry[(Task Registry)]
+
+    subgraph Agents ["AI Agents (no PayPal credentials)"]
+        A1["Agent via REST\nAuthorization: Bearer key"]
+        A2["Agent via MCP\nsubmit_task_payout tool"]
     end
 
-    subgraph AgentLayer ["2. Multi-Agent Reasoning Engine"]
-        Normalizer["Data Normalizer Agent\n(Extracts Email, Currency, Value)"]
-        Auditor["Compliance & Fraud Auditor\n(Duplicate & Anomaly Detection)"]
-        Optimizer["Batch Optimizer\n(Builds PayPal Payout JSON)"]
+    subgraph Guardian ["PayAgent Guardian"]
+        Auth["AuthN: hashed agent API key"]
+        G1{"Gate 1: Deterministic rules\nassigned? budget? deliverables?\nreplay? velocity?"}
+        G2{"Gate 2: LLM Proof-of-Task review\nstructured output, escalate-only"}
+        Decide{"Decision table §5.1"}
     end
 
-    subgraph GateLayer ["3. Human-in-the-Loop Gateway"]
-        RiskScore{"Risk Evaluator\nAmount > $100 OR\nRisk Flagged?"}
-        HITL["Executive Approval Modal\n(Human Sign-off)"]
-        AutoPass["Auto-Approved Pipeline"]
-    end
+    A1 & A2 --> Auth --> G1
+    G1 -- "any fail" --> Reject["POLICY_REJECTED\n(4xx, no LLM call)"]
+    G1 -- "all pass\n(budget reserved)" --> G2 --> Decide
+    Decide -- "auto" --> Dispatch
+    Decide -- "escalate" --> HITL["PENDING_HUMAN_APPROVAL"]
+    HITL -- "approve" --> Dispatch
+    HITL -- "reject" --> Rejected["HUMAN_REJECTED\n(reservation released)"]
 
-    subgraph PayPalLayer ["4. PayPal Sandbox Engine"]
-        AuthClient["OAuth 2.0 Auth Manager\n(Bearer Token Caching)"]
-        PayoutAPI["PayPal Payouts API\n(POST /v1/payments/payouts)"]
-        WebhookReceiver["FastAPI Webhook Listener\n(POST /api/v1/webhooks)"]
-        PayPalPlatform["PayPal Sandbox Infrastructure"]
-    end
-
-    subgraph StoreLayer ["5. Persistence & Observability"]
-        DB[(SQLite Audit Store)]
-        PostmanSpecs["Postman Automated Collection"]
-    end
-
-    NLPrompt --> Normalizer
-    FileDrop --> Normalizer
-    Normalizer --> Auditor
-    Auditor --> Optimizer
-    Optimizer --> RiskScore
-
-    RiskScore -- "High Risk / Policy Trigger" --> HITL
-    RiskScore -- "Within Policy" --> AutoPass
-    HITL -- "Authorized" --> AuthClient
-    AutoPass --> AuthClient
-
-    AuthClient --> PayoutAPI
-    PayoutAPI --> PayPalPlatform
-    PayPalPlatform -. "Asynchronous Event" .-> WebhookReceiver
-    WebhookReceiver --> DB
-    PayoutAPI --> DB
-    DB --> UI
+    Dispatch["Payout Dispatcher\nstored sender_batch_id + PayPal-Request-Id"] -->|POST /v1/payments/payouts| PayPal[(PayPal Sandbox)]
+    PayPal -. "webhook (RSA-verified)" .-> WH["Webhook Receiver"]
+    Poller["Reconciliation Poller\nGET /v1/payments/payouts/{id}"] --> PayPal
+    WH & Poller --> FSM["Status FSM §4.3"]
+    FSM --> DB[(Audit Store)]
+    DB -->|SSE| UI["AG Grid Operator Console"]
+    UI -->|approve / reject| HITL
 ```
 
-### 3.2 End-to-End Execution Sequence
+### 3.1 Sequence
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Admin as Finance Admin
-    participant UI as Treasury Dashboard
-    participant API as FastAPI Ingestion
-    participant Agents as Multi-Agent Core
-    participant DB as SQLite Audit Store
-    participant PayPal as PayPal Sandbox API
+    actor Op as Operator
+    participant Ag as Agent
+    participant G as Guardian
+    participant DB as Audit Store
+    participant PP as PayPal Sandbox
+    participant UI as Console
 
-    Admin->>UI: Enter prompt / Upload CSV
-    UI->>API: POST /api/v1/payouts/prepare
-    API->>Agents: Ingest & Parse Records
-    Agents->>Agents: Normalization & Email RFC Check
-    Agents->>Agents: Anomaly Detection (Spikes, Duplicates)
-    Agents->>DB: Save Prepared Batch (State: PENDING_APPROVAL)
-    Agents-->>UI: Return Structured Batch + Risk Summary
-    
-    Admin->>UI: Review items in AG Grid & Click "Approve & Disburse"
-    UI->>API: POST /api/v1/payouts/execute/{batch_id}
-    API->>PayPal: Authenticate (Fetch Cached OAuth2 Token)
-    API->>PayPal: POST /v1/payments/payouts (Header: PayPal-Request-Id UUIDv4, sender_batch_id)
-    PayPal-->>API: 201 Created (batch_status: PENDING)
-    API->>DB: Update State (PROCESSING, payout_batch_id)
-    API-->>UI: Real-Time Execution Notification
-    
-    PayPal-->>API: Webhook (PAYMENT.PAYOUTSBATCH.SUCCESS)
-    API->>DB: Update State (SUCCESS, timestamps, fees)
-    API-->>UI: Push Status Update via WebSocket / Polling
+    Op->>G: POST /api/v1/tasks (budget, allowed_recipient, required_deliverables, assigned_agent_id)
+    Ag->>G: POST /api/v1/payout-requests (task_id, amount, deliverables) [Bearer key]
+    G->>DB: Insert request (payout_request_id = UUIDv4, sender_batch_id derived ONCE)
+    G->>G: Gate 1 (deterministic) + atomic budget reservation
+    alt Gate 1 fails
+        G-->>Ag: 403/409/422/429 + reason code, status POLICY_REJECTED
+    else Gate 1 passes
+        G->>G: Gate 2 LLM review (structured JSON)
+        alt Decision = escalate
+            G->>DB: PENDING_HUMAN_APPROVAL
+            G-->>UI: SSE event
+            Op->>UI: Approve / Reject
+        end
+        G->>PP: POST /v1/payments/payouts (sender_batch_id, PayPal-Request-Id from DB)
+        PP-->>G: 201 {payout_batch_id, batch_status: PENDING}
+        G->>DB: SUBMITTED
+        par Real-time
+            PP-->>G: PAYMENT.PAYOUTS-ITEM.* webhook
+        and Fallback
+            G->>PP: GET /v1/payments/payouts/{payout_batch_id} (every 5s until terminal, max 10 min)
+        end
+        G->>DB: PAID / UNCLAIMED / FAILED / ...
+        G-->>UI: SSE event
+    end
 ```
 
 ---
 
-## 4. Data Contracts & Persistence Schemas
+## 4. Data Model
 
-### 4.1 Domain Contracts (Pydantic Models)
+### 4.1 Tables
+
+| Table | Key columns |
+| :--- | :--- |
+| `agents` | `agent_id`, `name`, `api_key_hash` (SHA-256), `status` (`ACTIVE`/`QUARANTINED`), `hourly_cap` |
+| `tasks` | `task_id`, `title`, `acceptance_criteria`, `budget`, `currency='USD'`, `allowed_recipient`, `assigned_agent_id`, `required_deliverables` (JSON list), `deadline`, `status` |
+| `payout_requests` | `payout_request_id` (UUIDv4 PK), `task_id`, `agent_id`, `amount`, `deliverables` (JSON), `artifact_sha256`, `status`, `decision_reasons` (JSON), `llm_verdict` (JSON), `risk_score` (display only), `sender_batch_id` (UNIQUE), `paypal_request_id` (UNIQUE), `payout_batch_id`, `created_at`, `decided_by` |
+| `payout_items` | `payout_item_id`, `payout_request_id`, `transaction_status` (raw PayPal value), `transaction_id`, `errors` (JSON), `updated_at` |
+| `budget_windows` | `agent_id`, `window_start` (hour bucket), `reserved`, `spent` — PK (`agent_id`, `window_start`) |
+| `webhook_events` | `event_id` (UNIQUE — dedupe), `event_type`, `resource_id`, `verified` (bool), `source` (`paypal`/`simulated`), `raw` (JSON), `received_at` |
+| `agent_incidents` | `agent_id`, `reason_code`, `payout_request_id`, `created_at` — feeds the circuit breaker |
+
+`artifact_sha256` is computed **server-side** over the canonical JSON of `deliverables`; agents do not supply it.
+
+### 4.2 Core Schemas (contract, not implementation)
 
 ```python
-from decimal import Decimal, ROUND_HALF_UP
-from pydantic import BaseModel, Field, EmailStr, field_validator
-from typing import List, Optional
-from enum import Enum
-from datetime import datetime
+class Task(BaseModel):
+    task_id: str
+    title: str
+    acceptance_criteria: str
+    budget: Decimal                      # USD, >0, at most 2 dp; validator REJECTS other precision, never rounds
+    allowed_recipient: EmailStr          # PayPal email the operator chose
+    assigned_agent_id: str
+    required_deliverables: list[str]     # e.g. ["pr_url", "test_report"]
+    deadline: datetime
 
-class ReceiverType(str, Enum):
-    EMAIL = "EMAIL"
-    PHONE = "PHONE"
-    PAYPAL_ID = "PAYPAL_ID"
+class PayoutRequestIn(BaseModel):        # what an agent may send; nothing else (extra="forbid")
+    task_id: str
+    amount: Decimal                      # must be <= task.budget; recipient is NOT accepted from the agent
+    deliverables: dict[str, str]         # keys must equal task.required_deliverables; values capped at 4 KB each
 
-class PayoutItem(BaseModel):
-    recipient_type: ReceiverType = Field(default=ReceiverType.EMAIL)
-    receiver: str = Field(..., description="Email, E.164 Phone, or PayPal Account ID")
-    amount: Decimal = Field(gt=0, description="Financial precision via Decimal, strictly positive")
-    currency: str = Field(default="USD", min_length=3, max_length=3)
-    note: str = Field(default="Disbursement via PayPilot AI")
-    sender_item_id: str
-    risk_flags: List[str] = Field(default_factory=list)
-
-    @field_validator("currency")
-    @classmethod
-    def validate_currency_code(cls, v: str) -> str:
-        return v.upper()
-
-    def format_amount_for_paypal(self) -> str:
-        """Enforces ISO 4217: 0 decimals for JPY/HUF/TWD; exactly 2 decimals for USD/EUR/GBP."""
-        if self.currency in ("JPY", "HUF", "TWD"):
-            return str(int(self.amount.to_integral_value()))
-        return str(self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-class PayoutBatchRequest(BaseModel):
-    sender_batch_id: str
-    items: List[PayoutItem]
-    total_amount: Decimal
-    requires_hitl: bool
-    risk_score: float = Field(ge=0.0, le=1.0)
-
-class PayoutBatchResponse(BaseModel):
-    payout_batch_id: str
-    batch_status: str
-    sender_batch_id: str
-    created_at: datetime
+class LLMVerdict(BaseModel):             # the only shape Gate 2 may return
+    passed: bool
+    confidence: float = Field(ge=0, le=1)
+    reasoning: str = Field(max_length=500)
 ```
 
-### 4.2 SQLite Database Tables
-- `batches`: Holds `batch_id`, `sender_batch_id`, `status` (`DRAFT`, `PENDING_APPROVAL`, `SUBMITTED`, `SUCCESS`, `DENIED`), `total_amount`, `currency`, `risk_score`, and timestamps.
-- `items`: Holds foreign key `batch_id`, `recipient_type`, `receiver`, `amount`, `currency`, `sender_item_id`, `transaction_id`, `transaction_status`, and `error_message`.
-- `webhook_events`: Holds `event_id`, `event_type`, `resource_type`, `summary`, raw JSON `payload`, and received timestamp.
+### 4.3 State Machines (three separate machines; do not merge)
+
+**Task:** `OPEN → PAYOUT_IN_PROGRESS → PAID` · `OPEN → CANCELLED` · a failed or rejected payout returns the task to `OPEN`.
+
+**PayoutRequest:**
+```
+RECEIVED ─┬─► POLICY_REJECTED                         (terminal, Gate 1)
+          └─► REVIEWED ─┬─► APPROVED ──► SUBMITTED ─┬─► PAID        (terminal)
+                        │                           ├─► UNCLAIMED ──► CANCELED (operator recall; terminal; reservation released)
+                        │                           │                (recipient has no PayPal account; PayPal auto-returns after 30 days → RETURNED)
+                        │                           ├─► FAILED      (terminal; reservation released)
+                        │                           └─► RETURNED / BLOCKED / ONHOLD (mapped from item status; RETURNED releases reservation)
+                        └─► PENDING_HUMAN_APPROVAL ─┬─► APPROVED (decided_by = operator)
+                                                    └─► HUMAN_REJECTED (terminal; reservation released)
+```
+Request status is derived from the **item-level** `transaction_status`, never from `batch_status` alone (a batch can be `SUCCESS` with failed items).
+
+**Agent:** `ACTIVE ⇄ QUARANTINED` (entered automatically via circuit breaker; exited only by operator action `POST /api/v1/agents/{id}/release`).
 
 ---
 
-## 5. Production Constraints & Evaluation Protocols
+## 5. Guardian Rules
 
-### 5.1 Idempotency & Financial Safety
-- **Dual-Layer Idempotency:** 
-  1. *HTTP Transport Layer:* Every state-mutating API call injects the official `PayPal-Request-Id` header with a unique **UUIDv4** string (max 38 characters).
-  2. *Application Resource Layer:* Every batch disbursal defines a deterministic `sender_batch_id`. The PayPal API guarantees that resubmitting a request with an existing `sender_batch_id` returns the existing resource without initiating duplicate fund transfers.
-- **Circuit Breaker:** Total single-batch spend capped at a configurable threshold (e.g., \$5,000 Sandbox) with max individual transfers capped at \$1,000 unless explicit multi-signature flag is set.
+### 5.1 Canonical Decision Table
 
-### 5.2 Secret & Configuration Management
-- Secrets are strictly managed via `.env` parsed by `pydantic-settings`.
-- Dedicated `.env.example` provides non-sensitive placeholders.
-- Absolutely zero hardcoded credentials or sandbox keys committed to git.
+Rows 1–8 are evaluated in order; first failure rejects.
 
-### 5.3 Fallback & Resilience Strategy
-- **Token Expiry Management:** OAuth2 Bearer tokens are stored in memory with proactive expiration refreshes (5 minutes prior to TTL).
-- **Network Retries:** Exponential backoff with jitter on HTTP 429 (Rate Limit) and 5xx PayPal API responses.
-- **Malformed Webhook Protection:** Cryptographic or mock-mode verification for webhook payloads to prevent unauthorized state manipulation.
+| # | Condition | Outcome | Reason code |
+| :-- | :--- | :--- | :--- |
+| 1 | Bad/missing API key | 401 | `AUTH_INVALID` |
+| 2 | Agent `QUARANTINED` | 403 `POLICY_REJECTED` | `AGENT_QUARANTINED` |
+| 3 | Task not found / not `OPEN` / not assigned to this agent | 403 `POLICY_REJECTED` | `TASK_NOT_ASSIGNED` |
+| 4 | Past `deadline` | 422 `POLICY_REJECTED` | `TASK_EXPIRED` |
+| 5 | `amount > task.budget` | 422 `POLICY_REJECTED` | `OVER_TASK_BUDGET` |
+| 6 | Deliverable keys ≠ `required_deliverables` | 422 `POLICY_REJECTED` | `DELIVERABLES_INCOMPLETE` |
+| 7 | `artifact_sha256` already used by any request | 409 `POLICY_REJECTED` | `ARTIFACT_REPLAY` |
+| 8 | Atomic budget reservation fails (hourly cap) | 429 `POLICY_REJECTED` | `VELOCITY_CAP` |
+| — | *Gate 1 passed → Gate 2 LLM review runs* | | |
+| 9 | LLM error / timeout (10 s) / non-conforming output | `PENDING_HUMAN_APPROVAL` | `LLM_UNAVAILABLE` |
+| 10 | `passed == false` or `confidence < 0.75` | `PENDING_HUMAN_APPROVAL` | `PROOF_DOUBTFUL` |
+| 11 | `amount > 50.00` (strictly greater; exactly $50.00 auto-approves) | `PENDING_HUMAN_APPROVAL` | `ABOVE_AUTO_LIMIT` |
+| 12 | None of 9–11 | `APPROVED` → dispatch | `AUTO_APPROVED` |
+
+- Every matching row among 9–11 is recorded in `decision_reasons`; the outcome is escalate if any match.
+- `risk_score` is **display-only** (badge in the console) and never drives a decision. There is no separate risk threshold.
+- Config: `MAX_SINGLE_TASK_AUTO_APPROVE=50.00`, `MIN_LLM_CONFIDENCE=0.75`, `MAX_AGENT_HOURLY_VELOCITY=200.00`.
+
+### 5.2 Prompt-Injection Posture
+1. **Escalate-only LLM.** LLM output can move a request from auto-approve to human review; it cannot pay anything Gate 1 did not already allow, and it cannot change amount or recipient. The worst case of a successful injection is bounded: an auto-approved payout of ≤ $50, to the operator-chosen recipient, for an assigned task.
+2. Deliverables are passed as data inside delimited, JSON-escaped blocks; the model is called with structured output (`LLMVerdict`); anything else counts as row 9.
+3. **No arbitrary URL fetching** (no SSRF surface). The optional verifier (§5.4) talks only to an allow-listed host.
+4. Injection attempts are a demo scenario and a test fixture (EXECUTION_PLAN M2).
+
+### 5.3 Budget Reservation (race-free, dialect-agnostic)
+A single atomic statement inside the request transaction, identical on SQLite and Postgres:
+```sql
+UPDATE budget_windows
+   SET reserved = reserved + :amount
+ WHERE agent_id = :agent_id AND window_start = :hour
+   AND spent + reserved + :amount <= :hourly_cap;
+-- rowcount == 0  ->  VELOCITY_CAP
+```
+The row is upserted beforehand. The reservation moves to `spent` on `PAID` and is released on `HUMAN_REJECTED` or `FAILED`. Pending human approvals **count against** the cap.
+
+### 5.4 Optional Deterministic Verifier (stretch)
+For `pr_url` deliverables: call `api.github.com` (the only allow-listed host) to confirm the PR exists and is merged. The result is added to the LLM context and to `decision_reasons`. This makes Proof-of-Task verifiable rather than self-reported.
+
+### 5.5 Circuit Breaker
+3 `agent_incidents` (Gate 1 rejections from rows 5–8, or `PROOF_DOUBTFUL`) within 10 minutes → agent `QUARANTINED`. Its `PENDING_HUMAN_APPROVAL` requests stay pending for operator review rather than being auto-rejected.
 
 ---
 
-## 6. Sponsor Alignment Matrix
+## 6. Integrations
 
-| Sponsor Tool | Exact Project Integration |
+### 6.1 PayPal Payouts v1
+- **OAuth:** client-credentials token cached in memory; refreshed when `now >= expires_at - 60s`, using the `expires_in` PayPal returns (no hard-coded TTL). One shared `httpx.AsyncClient` for the app lifetime.
+- **Idempotency:** at request creation, `payout_request_id = uuid4()`; `sender_batch_id = f"payagent_{payout_request_id.hex}"`; `PayPal-Request-Id = str(payout_request_id)`. Both are **stored and reused on every retry**. UUIDs (not task IDs or auto-increment ints) are required because PayPal rejects a reused `sender_batch_id` for ~30 days, so DB resets during rehearsal would otherwise collide.
+- **Retry policy:** retry on network error / 5xx / 429 with backoff (max 3). After an ambiguous failure (timeout), re-POST with the same `PayPal-Request-Id` to get the original response rather than a new batch.
+- **One request = one batch = one item.** Cross-request batching is out of scope: it complicates per-request HITL and idempotency for no demo value.
+- **Negative testing:** the `PayPal-Mock-Response` header and the sandbox simulator recipient are used in tests and in one demo scenario (FAILED path).
+
+### 6.2 Webhooks
+- Subscribed: `PAYMENT.PAYOUTS-ITEM.SUCCEEDED`, `.FAILED`, `.UNCLAIMED`, `.RETURNED`, `.BLOCKED`, `.DENIED`, `.HELD`, `.CANCELED`, plus `PAYMENT.PAYOUTSBATCH.*` (`PROCESSING`, `SUCCESS`, `DENIED`) for display.
+- **Recall:** an `UNCLAIMED` item can be cancelled with `POST /v1/payments/payouts-item/{payout_item_id}/cancel` (operator action, §7). Useful for cleaning up rehearsal payouts sent to a wrong or unregistered sandbox email.
+- **Verification:** PayPal signs with **SHA256withRSA** (certificate-based, not HMAC). Verified via `POST /v1/notifications/verify-webhook-signature` using `PAYPAL_WEBHOOK_ID`. Unverified events are stored (`verified=false`) but never change state.
+- Dedupe on `event_id`; ignore events that would move a request backwards in the FSM (out-of-order delivery).
+- Events sent from the PayPal Dashboard "Webhooks Simulator" do not pass signature verification; do not use them to demo verification.
+
+### 6.3 Reconciliation Poller (primary path when there is no public URL)
+After `SUBMITTED`, poll `GET /v1/payments/payouts/{payout_batch_id}` every 5 s until every item is terminal (cap 10 min, then an hourly sweep). This is real PayPal data, so local judges see genuine status transitions without ngrok.
+
+### 6.4 Simulated Events (tests only)
+`POST /api/v1/webhooks/simulate` exists only when `DEMO_MODE=true` **and** `APP_ENV != production`. Events are stored with `source=simulated` and tagged "simulated" in the console. Not used in the demo video.
+
+### 6.5 PayAgent MCP Server
+PayAgent exposes its own MCP server (streamable HTTP at `/mcp`, plus stdio for local agents), authenticated with the agent's API key:
+- `list_my_tasks()` → open tasks assigned to the calling agent
+- `submit_task_payout(task_id, amount, deliverables)` → same code path as REST
+- `get_payout_status(payout_request_id)`
+
+**Why not PayPal's MCP server / Agent Toolkit here?** The PayPal Agent Toolkit (invoices, orders, refunds, disputes, subscriptions, catalog, transaction reporting) has **no Payouts tool**. And handing agents PayPal tools directly would bypass the Guardian, which is the opposite of the product. Possible Toolkit uses are listed in §9 as stretch.
+
+### 6.6 Mock Mode
+`MOCK_PAYPAL=true` swaps the HTTP transport for a fake that returns PayPal-shaped responses (including item status progression). Used for tests and keyless smoke runs only; the console shows a persistent "MOCK MODE" banner so it can never be mistaken for a live run.
+
+---
+
+## 7. API Surface
+
+| Method & Path | Caller | Purpose |
+| :--- | :--- | :--- |
+| `POST /api/v1/tasks` · `GET /api/v1/tasks` | Operator | Create / list tasks |
+| `POST /api/v1/agents` | Operator | Register agent; returns API key **once** |
+| `POST /api/v1/agents/{id}/release` | Operator | Exit quarantine |
+| `POST /api/v1/payout-requests` | Agent | Request payment |
+| `GET /api/v1/payout-requests/{id}` | Agent / Operator | Status |
+| `POST /api/v1/payout-requests/{id}/approve` · `/reject` | Operator | HITL decision |
+| `POST /api/v1/payout-requests/{id}/cancel` | Operator | Recall an `UNCLAIMED` payout (409 in any other state) |
+| `POST /api/v1/webhooks/paypal` | PayPal | Webhook receiver |
+| `GET /api/v1/events` | Console | SSE stream |
+| `/mcp` | Agent | MCP server (§6.5) |
+
+Operator endpoints are protected by a single `OPERATOR_TOKEN` (demo-grade auth, documented as such). The README publishes a demo token for local runs.
+
+---
+
+## 8. Sponsor Tool Alignment
+
+| Tool | Integration |
 | :--- | :--- |
-| **Postman** | Dedicated `/docs/postman/` directory containing `PayPilot_Sandbox.postman_collection.json` and environment setup for end-to-end sandbox verification. |
-| **Render** | Root-level `render.yaml` infrastructure-as-code blueprint for seamless, 1-click cloud deployment of the FastAPI backend and web terminal. |
-| **AG Grid** | Web dashboard interface data grid featuring column sorting, filtering, and risk badge formatting for batch transactions. |
+| **AG Grid** | Operator console: payout-requests grid (status, reason codes, risk badge, approve/reject actions) and agents grid (budget burn, quarantine), live via SSE. |
+| **Postman** | `docs/postman/PayAgent.postman_collection.json` + environment: operator setup → agent requests (happy, over-budget, injection, replay) → HITL approve → status. |
+| **Render** | `render.yaml` for the hosted demo. The free tier sleeps and has an ephemeral disk, so the hosted demo uses an external persistent DB via `DATABASE_URL` and the README states the cold-start delay. Local run stays the primary judging path. |
+
+---
+
+## 9. Roadmap / Explicitly Out of Scope
+
+| Item | Status | Why deferred |
+| :--- | :--- | :--- |
+| PYUSD settlement rail | Roadmap | No PayPal sandbox API for PYUSD payouts; on-chain (Sepolia) needs key management and gas. Mentioned in the pitch only as future work, never shown as working. |
+| Operator funds tasks via Orders v2 (money-in), driven by the PayPal Agent Toolkit | Stretch (preferred Toolkit use) | `paypal-agent-toolkit` LangChain tools scoped to orders create/get/capture (see `docs/reference/`). Makes PayPal both funding and settlement. The operator still has to approve the order on PayPal's checkout page before `pay_order` can capture it. |
+| PayPal Agent Toolkit "operator copilot" | Stretch | Natural-language reconciliation via `list_transactions`. Unverified concern: transaction-reporting data may lag, so it might not show a payout made seconds earlier. Test in sandbox before relying on it. |
+| Multi-currency | Out | USD only, so zero-decimal currency handling is not needed. |
+| Multi-worker / horizontal scale | Out | Budget reservation assumes one process; documented. |

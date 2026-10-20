@@ -1,23 +1,46 @@
 services:
   - type: web
-    name: paypilot-ai-backend
+    name: payagent-ai
     env: python
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    # Single worker: required by the budget-reservation design (ARCHITECTURE.md section 5.3)
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: APP_ENV
+        value: production
       - key: PAYPAL_MODE
         value: sandbox
       - key: PAYPAL_BASE_URL
         value: https://api-m.sandbox.paypal.com
+      - key: MOCK_PAYPAL
+        value: "false"
+      - key: DEMO_MODE
+        value: "false"
       - key: PAYPAL_CLIENT_ID
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: SANDBOX_RECIPIENT_EMAIL
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: APP_ENV
-        value: production
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: OPERATOR_TOKEN
+        sync: false
+      # Free-tier disk is ephemeral: point this at an external persistent Postgres
+      # (postgresql+asyncpg://...). SQLite here would be wiped on every restart.
+      - key: DATABASE_URL
+        sync: false
+      - key: MAX_SINGLE_TASK_AUTO_APPROVE
+        value: "50.00"
+      - key: MIN_LLM_CONFIDENCE
+        value: "0.75"
+      - key: MAX_AGENT_HOURLY_VELOCITY
+        value: "200.00"

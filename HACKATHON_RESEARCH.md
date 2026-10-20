@@ -76,55 +76,76 @@ Synthesized directly from PayPal's core documentation and developer post-mortems
    - Maximum of **40 accounts** per bulk file; maximum file size **1 MB**.
    - Balance parameter `ppBalance` must be bounded between `0` and `100,000`.
 5. **Transient 500s & Rate Limiting (`RATE_LIMIT_REACHED`):**
-   - Repeatedly requesting OAuth2 tokens on every transaction causes HTTP `429 Unprocessable Entity - RATE_LIMIT_REACHED`.
-   - Polling endpoints at millisecond frequencies triggers automated IP throttling. Webhooks are mandatory for production-grade evaluation.
+   - Repeatedly requesting OAuth2 tokens on every transaction causes HTTP `429 Too Many Requests - RATE_LIMIT_REACHED`. (Note: HTTP 422 is `Unprocessable Entity` for schema/data validation errors).
+   - Polling endpoints at sub-second millisecond frequencies triggers automated IP throttling. Webhooks are used for production events, supplemented by respectful interval polling for local sandbox verification.
 
 ---
 
-## 2. Winning Solution Teardowns & Architectures
+## 2. Solution Architectures & Comparative Case Studies
 
-### 2.1 Teardown 1: PayPilot AI — Autonomous Multi-Agent Treasury & Payout Engine
-- **Profile / Hackathon Track:** Agentic Commerce, AI Integration, Postman & Render Sponsor Tracks.
+> [!NOTE]
+> The teardowns below represent architectural reference designs and comparative models analyzed for the hackathon tracks. Teardown 1 captures our own evolving system model for **PayAgent AI** (further formalized in [ARCHITECTURE.md](./ARCHITECTURE.md) Revision 2), while Teardowns 2 and 3 provide comparative architectural models for multi-party and subscription platforms.
+
+### 2.1 Teardown 1: PayAgent AI — Autonomous Financial Guardian & Payouts Gateway for AI Agents
+- **Profile / Hackathon Track:** Agentic Commerce, AI Integration, Payouts v1, Postman & Render Sponsor Tracks.
 - **Core Architecture & Backbone:**
-  - **Orchestration:** LangGraph state machine coordinating deterministic financial sub-agents.
-  - **Validation Engine:** Pydantic v2 data models enforcing ISO currency precision, email sanitation, and non-negative batch amounts.
-  - **Financial Layer:** PayPal Payouts REST API v1 (`/v1/payments/payouts`) with OAuth2 token caching, UUIDv4 idempotency keys (`PayPal-Request-Id`), and asynchronous Webhook verification.
-  - **Audit Interface:** Fast modern frontend utilizing **AG Grid** for dense multi-item audit logs and interactive batch approvals.
+  - **Operator Task Registry:** Pre-funded and pre-scoped task registry (`task_id`, assigned `agent_id`, hard `budget`, pre-set `recipient_email`).
+  - **PayAgent Guardian Core:** FastAPI microservice acting as a zero-trust financial proxy between autonomous agents and PayPal disbursements.
+  - **Dual-Gate Verification Pipeline:**
+    - **Gate 1 (Fixed Deterministic Rules):** Recipient whitelist check, budget cap check, agent velocity limits, and sha256 artifact verification.
+    - **Gate 2 (LLM Proof-of-Task Validation):** Structured evaluation (`passed`, `confidence`) against task acceptance criteria. LLM failure, low confidence (<0.75), or requests >$50 trigger Human-in-the-Loop review.
+  - **Native PayPal Payouts Integration:** Idempotent single-item batch disbursals via `POST /v1/payments/payouts` with persistent `payagent_{uuid4().hex}` sender batch IDs.
+  - **Agent Interface:** Dedicated PayAgent MCP server (`list_my_tasks`, `submit_task_payout`, `get_payout_status`).
+  - **Audit & HITL Dashboard:** AG Grid enterprise data table with live SSE/WebSocket streaming, inline human approval/rejection, and agent quarantine controls.
 - **Key Differentiator:** 
-  The implementation of a **Deterministic Human-in-the-Loop (HITL) Safety Gate** placed strictly between the probabilistic LLM parser and the financial execution pipeline. While the AI dynamically parses messy unstructured timesheets, receipts, and natural language instructions, it cannot autonomously dispatch funds without explicit schema verification, duplicate detection, and treasury threshold sign-off.
+  A dedicated **Financial Guardian for Autonomous AI Agents**. Instead of granting worker agents direct API credentials or credit cards, PayAgent confines agents to pre-scoped tasks with automated micro-payouts (≤$50) and enforced human review for high-value or ambiguous tasks.
 - **Pipeline Flow:**
 
 ```mermaid
-flowchart LR
-    subgraph Ingestion ["1. Multimodal Ingestion"]
-        Prompt["Natural Language Prompt / CSV / JSON"]
+flowchart TD
+    subgraph Swarm ["1. Autonomous Worker Agents"]
+        Worker1["Code Review Agent"]
+        Worker2["Data Labeling Agent"]
+        Worker3["Research Synthesis Agent"]
     end
 
-    subgraph Intelligence ["2. Multi-Agent Reasoning"]
-        Parser["Parser Agent\n(Extracts entities & currency)"]
-        Auditor["Auditor Agent\n(Deduplication & Velocity check)"]
-        Optimizer["Batch Optimizer\n(Builds PayPal JSON)"]
+    subgraph GuardianMCP ["2. PayAgent MCP Server"]
+        MCPTools["Tools: list_my_tasks, submit_task_payout, get_payout_status"]
     end
 
-    subgraph Gate ["3. Safety Control"]
-        HITL{"HITL Safety Gate\n(Risk Score & Admin Approval)"}
+    subgraph Guardian ["3. PayAgent Financial Guardian Core"]
+        Gate1["Gate 1: Hard Rules\n(Task Registry, Budget, Recipient Whitelist)"]
+        Gate2["Gate 2: LLM Proof Evaluator\n(Confidence >= 0.75 & Criteria Match)"]
+        Decision{"Decision Matrix (§5.1)\n(Amount <= $50 & Gate 2 Pass)"}
     end
 
-    subgraph Execution ["4. PayPal REST Gateway"]
-        OAuthCache["OAuth Token Cache\n(TTL Managed)"]
-        PayoutsAPI["POST /v1/payments/payouts\n(Idempotent UUIDv4)"]
-        Webhook["Async Webhook Listener\n(HMAC Signature Verified)"]
+    subgraph GateLayer ["4. Execution & HITL Layer"]
+        AutoClear["Auto-Disbursal Pipeline\n(<= $50 & Low Risk)"]
+        HITL["HITL Operator Queue\n(> $50, Low Confidence, or Error)"]
     end
 
-    subgraph UI ["5. Executive Terminal"]
-        AGGrid["AG Grid Treasury Terminal\n(Real-time State Sync)"]
+    subgraph PayPalSettlement ["5. PayPal Sandbox Settlement"]
+        PayPalPayouts["PayPal Payouts REST API v1\n(POST /v1/payments/payouts)"]
+        LocalPoller["Local Status Poller\n(GET /v1/payments/payouts/{id})"]
+        Webhook["Async PayPal Webhook Listener\n(SHA256withRSA Verified)"]
     end
 
-    Prompt --> Parser --> Auditor --> Optimizer --> HITL
-    HITL -- Approved --> OAuthCache --> PayoutsAPI
-    PayoutsAPI -. Status Callback .-> Webhook
-    Webhook --> AGGrid
-    HITL -. Pending State .-> AGGrid
+    subgraph UI ["6. Operator Dashboard"]
+        AGGrid["AG Grid Treasury & Audit Terminal\n(SSE Real-Time Stream, One-Click HITL)"]
+    end
+
+    Worker1 & Worker2 & Worker3 -->|Call MCP Tools| MCPTools
+    MCPTools --> Gate1
+    Gate1 --> Gate2
+    Gate2 --> Decision
+    Decision -- Approved --> AutoClear
+    Decision -- Needs Review --> HITL
+    HITL -- Operator Approves --> AutoClear
+    AutoClear --> PayPalPayouts
+    PayPalPayouts -. Query Status .-> LocalPoller
+    PayPalPayouts -. Callback .-> Webhook
+    LocalPoller & Webhook --> AGGrid
+    HITL -. Pending Items .-> AGGrid
 ```
 
 ### 2.2 Teardown 2: Modern Multi-Party Marketplace Split Engine (Orders v2 Multiparty)
@@ -301,34 +322,34 @@ graph TD
     A --> C[Double Disbursals / No Idempotency]
     A --> D[Tight Polling Anti-Pattern]
     A --> E[Floating Point Math Errors]
-    A --> F[Deprecated Endpoint Disqualification]
+    A --> F[Deprecated Endpoint Usage]
     A --> G[Sandbox Isolation Blindness]
 
-    B --> B1["Solution: Cache OAuth token with 9-hour TTL"]
-    C --> C1["Solution: Inject UUIDv4 in PayPal-Request-Id"]
-    D --> D1["Solution: Subscribe to Webhooks + local ngrok / dev tunnel"]
+    B --> B1["Solution: Cache OAuth token; refresh from expires_in minus 60s"]
+    C --> C1["Solution: Persist sender_batch_id + PayPal-Request-Id once; reuse on retry"]
+    D --> D1["Solution: Webhooks when hosted; 5s interval poller locally"]
     E --> E1["Solution: Use Python Decimal with exact 2-decimal strings"]
     F --> F1["Solution: Strictly use modern REST v1/v2 endpoints"]
     G --> G1["Solution: Read mock receipts in Dev Dashboard Notifications"]
 ```
 
-### 4.1 Documented Traps from Previous Competitions
+### 4.1 Common Integration Traps (team-compiled from PayPal docs and general practice; not sourced from past competitions)
 
-1. **The Polling Disqualification Trap:**
-   - *Symptom:* Creating a payout batch or order and calling `GET` in a `while True:` loop every 500ms to detect status updates.
-   - *Consequence:* Exhausts developer sandbox rate limits (HTTP 429), slows down judge evaluation, and fails the Technological Implementation criterion.
-   - *Fix:* Register asynchronous webhook event listeners (`PAYMENT.PAYOUTSBATCH.SUCCESS`, `PAYMENT.PAYOUTS-ITEM.SUCCESS`, `PAYMENT.PAYOUTSBATCH.DENIED`).
+1. **Tight Polling Anti-Pattern & Rate Limits:**
+   - *Symptom:* Creating a payout batch or order and calling `GET` in an unthrottled `while True:` loop every 500ms to detect status updates.
+   - *Consequence:* Exhausts developer sandbox rate limits (HTTP 429) and degrades system performance.
+   - *Fix:* In hosted environments, register asynchronous webhook event listeners (`PAYMENT.PAYOUTSBATCH.SUCCESS`, `PAYMENT.PAYOUTS-ITEM.SUCCEEDED`, `PAYMENT.PAYOUTSBATCH.DENIED`). In local sandbox environments (where webhooks cannot reach `localhost` without public tunnels), use interval polling against `GET /v1/payments/payouts/{id}` with sensible backoff (e.g. every 5–10 seconds).
 2. **Double Payout on Network Timeout:**
    - *Symptom:* The client sends `POST /v1/payments/payouts`. The sandbox network socket times out after 10 seconds. The client retries the request without an idempotency header.
    - *Consequence:* Two distinct batches are created; recipients receive duplicate funds.
-   - *Fix:* Pass `PayPal-Request-Id: str(uuid.uuid4())` and persist this key in the local database alongside the internal batch status.
+   - *Fix:* Pass `PayPal-Request-Id` and `sender_batch_id` derived from a persistent identifier (`payagent_{uuid4().hex}`) stored in the local database upon request creation, reusing the exact same IDs on any retry.
 3. **Hardcoding Personal Production Credentials:**
    - *Symptom:* Accidentally pushing production PayPal API secrets or live client IDs to public GitHub repos.
-   - *Consequence:* Instant repository flagging, credential invalidation, security policy violation, and disqualification.
+   - *Consequence:* Leaked secrets are scraped from public repos within minutes, and GitHub secret scanning may flag them. Credentials must be rotated. (The hackathon rules do not list this as a disqualification criterion, but it is a security failure in a payments project.)
    - *Fix:* Strictly enforce `.env` loading with a populated `.env.example` containing dummy `sandbox_client_id` placeholders.
 4. **Targeting Outdated or Deprecated Endpoints:**
-   - *Symptom:* Attempting to use deprecated non-REST endpoints or outdated SDKs found in historical code snippets.
-   - *Consequence:* Immediate failure in Stage 1 pass/fail screening. PayPal Open mandates modern REST APIs; deprecated non-REST endpoints are ineligible for new projects.
+   - *Symptom:* Attempting to use legacy non-REST endpoints or outdated SOAP/NVP SDKs found in historical code snippets.
+   - *Consequence:* Poor technological score and maintenance friction. Modern PayPal integrations require REST APIs with OAuth2 Bearer tokens.
    - *Fix:* Strictly target modern PayPal REST APIs (`https://api-m.sandbox.paypal.com/v1/...` and `/v2/...`) authenticated via OAuth2 Bearer tokens.
 5. **Video Presentation Over-Run ($\ge 3:00$):**
    - *Symptom:* Video demo duration is 3 minutes and 15 seconds.
@@ -336,9 +357,20 @@ graph TD
 
 ---
 
-## 5. Actionable Roadmap for Our Project (PayPilot AI)
+## 5. Historical Roadmap & Architectural Evolution Archive
 
-### 5.1 Component Priority Matrix
+> [!IMPORTANT]
+> **SUPERSEDED BY [ARCHITECTURE.md](./ARCHITECTURE.md) (Revision 2) AND [EXECUTION_PLAN.md](./EXECUTION_PLAN.md).**
+> This section preserves the exploratory research notes and initial Day-1 prototype from the project's early formulation (initially codenamed "PayPilot AI").
+> 
+> **Key Evolution Decisions Applied in Revision 2:**
+> 1. **Pivot to PayAgent AI:** Transitioned from natural-language CSV payouts to a Financial Guardian and MCP Server for autonomous AI agents.
+> 2. **Fixed Idempotency Flaw:** The initial snippet below instantiated random UUIDs inside `dispatch_payout_batch` on each invocation, breaking retry deduplication. In Revision 2, `sender_batch_id` is generated once as `payagent_{uuid4().hex}` upon request creation, saved in the database, and reused deterministically on retries (satisfying PayPal's 30-day deduplication window).
+> 3. **Dual-Gate Security & Task Registry:** Replaced loose open-ended payout requests with a pre-scoped Task Registry where human operators set budgets and recipient addresses, preventing prompt-injected agents from choosing their own payees.
+> 4. **Three Distinct State Machines:** Decoupled monolithic status into Task, Payout Request, and Agent state machines.
+> 5. **Webhook Verification:** Corrected signature verification protocol to asymmetric `SHA256withRSA` certificate checking (rather than symmetric HMAC).
+
+### 5.1 Historical Component Priority Matrix
 
 ```mermaid
 quadrantChart
@@ -365,32 +397,34 @@ quadrantChart
 
 ### 5.2 Checklist: Must-Have vs. Nice-to-Have
 
-#### Must-Have Components (Guarantees Valid Submission & Top 20% Score)
-- [x] **PayPal Payouts REST API v1 Client:** High-throughput batch disbursal engine (`POST /v1/payments/payouts`) with query fallback (`GET /v1/payments/payouts/{batch_id}`).
-- [x] **OAuth2 Token Cache:** In-memory token manager with timestamp TTL evaluation preventing HTTP 429 rate limits.
-- [x] **Strict Idempotency:** Automatic UUIDv4 generation attached to `PayPal-Request-Id` on all write requests.
-- [x] **Pydantic Data Contracts:** Pre-execution validation enforcing 2-decimal formatting, positive values, and valid recipient type enums (`EMAIL`, `PHONE`, `PAYPAL_ID`).
-- [x] **Human-in-the-Loop (HITL) Safety Gate:** Approval state transition preventing LLM hallucinations from executing disbursements without human review.
-- [x] **Comprehensive `README.md` & License:** Complete setup guide with instructions on adding sandbox credentials and detectable open source license.
-- [x] **Tight Demo Video ($\le 3:00$ min):** Highlighting the problem, the agentic architecture, live sandbox payout execution, and verified webhook response.
+> Historical checklist from the PayPilot formulation. Nothing below is built yet; live progress is tracked in [EXECUTION_PLAN.md](./EXECUTION_PLAN.md).
+
+#### Must-Have Components (Minimum for a Valid, Competitive Submission)
+- [ ] **PayPal Payouts REST API v1 Client:** Batch disbursal (`POST /v1/payments/payouts`) with status query (`GET /v1/payments/payouts/{batch_id}`).
+- [ ] **OAuth2 Token Cache:** In-memory token manager refreshed from `expires_in`, avoiding needless token requests.
+- [ ] **Strict Idempotency:** `sender_batch_id` and `PayPal-Request-Id` generated **once** per request, persisted, and reused on every retry (superseded the original "new UUIDv4 per write" approach).
+- [ ] **Pydantic Data Contracts:** Pre-execution validation rejecting (not rounding) invalid precision, enforcing positive values and valid recipient type enums (`EMAIL`, `PHONE`, `PAYPAL_ID`).
+- [ ] **Human-in-the-Loop (HITL) Safety Gate:** Approval state transition preventing LLM hallucinations from executing disbursements without human review.
+- [ ] **Comprehensive `README.md` & License:** Complete setup guide with instructions on adding sandbox credentials and detectable open source license.
+- [ ] **Tight Demo Video ($\le 3:00$ min):** Highlighting the problem, the agentic architecture, live sandbox payout execution, and verified status updates.
 
 #### Nice-to-Have Polish Components (Secures Winning Podium)
 - [ ] **Interactive AG Grid UI:** Rich enterprise data table showing real-time batch statuses, recipient breakdowns, and inline approval toggles (Direct alignment with sponsor AG Grid).
 - [ ] **Postman Collection & Test Suite:** Fully populated Postman v2.1 collection with pre-request scripts and automated assertions (Direct alignment with sponsor Postman).
 - [ ] **One-Click Cloud Deployment:** Ready-to-deploy `render.yaml` specification for Render web services (Direct alignment with sponsor Render).
 - [ ] **Negative Testing Playground:** UI switch to inject `PayPal-Mock-Response` or `ERRPYO002` simulation notes to demonstrate robust error handling.
-- [ ] **Async Webhook Daemon:** Public tunnel / listener processing `PAYMENT.PAYOUTSBATCH.SUCCESS` with HMAC signature validation.
+- [ ] **Async Webhook Daemon:** Public listener processing item and batch payout events with SHA256withRSA certificate verification.
 
 ---
 
-### 5.3 Recommended Day-1 Baseline Architecture
+### 5.3 Historical Day-1 Baseline Architecture (Exploratory Prototype)
 
-Below is the verified, zero-dependency Day-1 executable baseline architecture connecting FastAPI, Pydantic, and PayPal Sandbox Payouts with full idempotency and token caching:
+The snippet below was the initial Day-1 proof-of-concept exploring FastAPI, Pydantic, and PayPal Sandbox Payouts. *(Note: As detailed in Section 5 above, this prototype created fresh random IDs inside `dispatch_payout_batch` and lacked the Task Registry and Gate 1 / Gate 2 defenses now formalized in `ARCHITECTURE.md` Revision 2).*
 
 ```python
 """
-PayPilot AI - Core Financial Gateway Baseline
-Integrates PayPal Payouts REST API v1 with OAuth2 caching and Idempotency
+Historical Prototype - Initial Financial Gateway Baseline
+Explores PayPal Payouts REST API v1 with OAuth2 caching
 """
 import os
 import time

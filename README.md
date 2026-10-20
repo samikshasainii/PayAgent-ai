@@ -1,7 +1,7 @@
-# PayPilot AI: Autonomous Agentic Treasury & Payout Engine
+# PayAgent AI: Spend-Control Guardian for AI Agents, Settled on PayPal Payouts
 
 > Built for the **PayPal AI Hackathon 2026**.  
-> Transforming messy, unstructured commercial performance data into audited, multi-party PayPal disbursements with Human-in-the-Loop safeguards and real-time webhook intelligence.
+> Lets AI agents get paid for completed tasks through **PayPal Payouts** without ever holding payment credentials. Every payout is bounded by an operator-defined task budget and recipient, and is checked by deterministic rules plus an LLM Proof-of-Task review, with Human-in-the-Loop approval for anything risky.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PayPal SDK](https://img.shields.io/badge/PayPal-Sandbox%20Payouts%20API-003087?logo=paypal)](https://developer.paypal.com)
@@ -12,48 +12,51 @@
 
 ## 1. Executive Summary
 
-Disbursing funds to gig workers, affiliates, prize winners, and vendors is a multi-billion dollar friction point. Companies waste dozens of hours manually formatting spreadsheets, calculating deductions, and double-checking emails, constantly risking fat-finger duplicate payments.
+As autonomous AI agents (code reviewers, research assistants, data miners, and bounty solvers) proliferate, they increasingly need to transact: paying human-in-the-loop reviewers, purchasing compute/data, and settling completed milestones.
 
-**PayPilot AI** is an autonomous financial operations co-pilot that:
-1. **Ingests** natural language instructions or raw tabular timesheets.
-2. **Normalizes & Audits** recipients, currencies, and amounts via a multi-agent reasoning graph.
-3. **Screens for Fraud & Anomalies**, flagging duplicate emails and statistical spikes.
-4. **Applies a Human-in-the-Loop (HITL) Safety Gate**, requiring one-click executive authorization before any funds move.
-5. **Executes Disbursals** via the **PayPal Payouts REST API** (`POST /v1/payments/payouts`) with idempotent batch tracking.
-6. **Captures Asynchronous Lifecycle Events** through real-time PayPal Sandbox Webhook listeners.
+Currently, financial autonomy for AI agents faces two fatal extremes:
+1. **The Runaway Card Risk:** Giving agents unrestricted payment access causes disastrous runaway spend from infinite loops, hallucinations, or prompt injection.
+2. **The Micro-Approval Bottleneck:** Requiring human managers to sign off on every \$0.50 micro-payout destroys agent autonomy.
+
+**PayAgent AI** is the only component that holds PayPal credentials. Agents never see them.
+1. **Operators register tasks** with a budget, a fixed PayPal recipient, and required deliverables.
+2. **Agents request payment** against an assigned task (REST or PayAgent's own **MCP server**). They cannot choose the amount above budget or the recipient.
+3. **Gate 1: deterministic rules** (assignment, budget, deliverables, replay, hourly velocity) reject bad requests instantly, with no LLM call.
+4. **Gate 2: LLM Proof-of-Task review** can only *escalate* to a human, never approve beyond Gate 1, so prompt injection stays bounded.
+5. **Human-in-the-Loop approval** for payouts above $50 or with doubtful proof.
+6. **PayPal Payouts v1** settlement with stored idempotency keys, RSA-verified webhooks, and a reconciliation poller.
+7. **AG Grid operator console** with live (SSE) status, reason codes, and one-click approve/reject.
+
+Decision rules, state machines and threat model: [ARCHITECTURE.md](./ARCHITECTURE.md). Future work (e.g. a PYUSD rail) is listed in its §9.
 
 ---
 
 ## 2. System Architecture
 
-For complete system design, data contracts, and threat models, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+For the full design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```
-[ Natural Language / CSV Input ]
-              │
-              ▼
-[ Ingestion & Normalizer Agent ] ──> Pydantic Schema Validation
-              │
-              ▼
-[ Compliance & Fraud Auditor ]   ──> Duplicate / Variance Scoring
-              │
-              ▼
-[ Human-in-the-Loop Gateway ]    ──> Executive 1-Click Authorization
-              │
-              ▼
-[ PayPal Payouts REST API ]      ──> api-m.sandbox.paypal.com
-              │
-              ▼
-[ PayPal Webhook Listener ]      ──> Real-Time SQLite Audit Trail
+ Operator ──► Task Registry (budget, recipient, required deliverables)
+                     │
+ AI Agent ──REST/MCP──► PayAgent Guardian
+                     │   Gate 1: deterministic rules ──fail──► POLICY_REJECTED
+                     │   Gate 2: LLM Proof-of-Task review (escalate-only)
+                     │
+          ┌──────────┴───────────┐
+     ≤ $50 & proof OK     > $50 or doubtful proof
+          │                      │
+          │              Human approves in console
+          ▼                      ▼
+       PayPal Payouts v1 (sandbox) ──webhooks / poller──► Audit DB ──SSE──► AG Grid console
 ```
 
 ---
 
 ## 3. Sponsor Tool Integrations
 
-* **Postman:** Complete, importable collection in `docs/postman/PayPilot_PayPal_Sandbox.postman_collection.json` with pre-configured sandbox variables for direct API inspection.
-* **Render:** Infrastructure-as-code deployment specification via `render.yaml` for 1-click cloud hosting.
-* **AG Grid:** Interactive executive table with live sorting, risk badges, and batch filtering in the management dashboard.
+* **Postman:** Collection in `docs/postman/PayAgent.postman_collection.json` covering setup, the happy path, over-budget, replay and injection requests, HITL approval, and status checks.
+* **Render:** `render.yaml` blueprint for the hosted demo (single worker, external persistent DB).
+* **AG Grid:** Operator console with live payout status, reason codes, agent budget burn, and one-click approve/reject.
 
 ---
 
@@ -62,20 +65,26 @@ For complete system design, data contracts, and threat models, see [ARCHITECTURE
 ```text
 ├── configs/               # Environment & experiment configs (.yaml, .json)
 ├── data/
-│   ├── raw/               # Immutable raw data (git-ignored)
+│   ├── raw/               # Immutable raw records (git-ignored)
 │   └── processed/         # Artifacts & intermediate caches (git-ignored)
 ├── docs/
-│   └── postman/           # Official Postman collection & environment
-├── notebooks/             # Exploratory work & rapid prototyping
+│   ├── postman/           # Official Postman collection & environment
+│   └── reference/         # Copies of PayPal AI developer docs (third-party, not MIT)
+├── notebooks/             # Exploratory prototyping & agent simulation
 ├── src/                   # Production application & pipeline code
-│   ├── components/        # Multi-agent stages, schemas & webhook handlers
-│   ├── utils/             # PayPal OAuth client, DB models & loggers
+│   ├── guardian.py        # Gate 1 rules, decision table, budget reservation
+│   ├── proof_review.py    # Gate 2 LLM Proof-of-Task review
+│   ├── paypal_client.py   # OAuth cache, Payouts v1, mock transport
+│   ├── poller.py / webhooks.py  # Payout status reconciliation
+│   ├── mcp_server.py      # PayAgent MCP server for agents
+│   ├── static/            # AG Grid operator console
 │   └── main.py            # FastAPI service entry point
 ├── tests/                 # Unit, integration, and sandbox evaluation tests
 ├── .env.example           # Sanitized environment variable template
-├── .gitignore             # Strict ignore rules for data, secrets, caches
+├── .gitignore             # Strict ignore rules for secrets, DBs, caches
 ├── ARCHITECTURE.md        # Complete system blueprint & data contracts
 ├── EXECUTION_PLAN.md      # Milestone implementation schedule
+├── HACKATHON_RESEARCH.md  # Competitive intelligence & PayPal API specs
 ├── LICENSE                # MIT License
 ├── render.yaml            # Render cloud deployment blueprint
 └── requirements.txt       # Pinned project dependencies
@@ -88,7 +97,7 @@ For complete system design, data contracts, and threat models, see [ARCHITECTURE
 ### Prerequisites
 - Python 3.11 or higher
 - A free [PayPal Developer Sandbox Account](https://developer.paypal.com)
-- An OpenAI or compatible LLM API Key
+- An OpenAI API key (for the Proof-of-Task review)
 
 ### Step 1: Clone and Set Up Virtual Environment
 ```bash
@@ -111,23 +120,22 @@ pip install -r requirements.txt
 ```
 
 ### Step 3: Configure Environment Variables
-Copy the template and fill in your PayPal Sandbox credentials:
 ```bash
 cp .env.example .env
 ```
-Update `.env` with your `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `OPENAI_API_KEY`.
+Fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `SANDBOX_RECIPIENT_EMAIL`, and `OPENAI_API_KEY`. To try it without keys, set `MOCK_PAYPAL=true` (the console shows a MOCK MODE banner).
 
 ### Step 4: Run the Application
 ```bash
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
-Open [http://localhost:8000/docs](http://localhost:8000/docs) to explore the interactive OpenAPI/Swagger documentation.
+Open [http://localhost:8000/docs](http://localhost:8000/docs) for the interactive OpenAPI documentation or [http://localhost:8000](http://localhost:8000) for the Swarm Treasury Terminal.
 
 ---
 
 ## 6. Testing & Verification
 
-Run the test harness to verify schema validation and PayPal API client readiness:
+Run the test suite:
 ```bash
 pytest tests/ -v
 ```
@@ -135,4 +143,4 @@ pytest tests/ -v
 ---
 
 ## 7. License
-Distributed under the **MIT License**. See [LICENSE](./LICENSE) for full details.
+Distributed under the **MIT License**. See [LICENSE](./LICENSE) for details.
