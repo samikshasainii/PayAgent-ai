@@ -1,9 +1,12 @@
+import os
 import uuid
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from starlette.routing import Route
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +33,7 @@ from src.services.state_machine import (
 )
 from src.services.paypal_client import paypal_client
 from src.services.payout_service import process_payout_submission, dispatch_payout
+from src.services.poller import poller, reconcile_all_pending
 from src.mcp_server.server import mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -44,20 +48,16 @@ async def lifespan(app: FastAPI):
     # Initialize DB tables on startup
     await init_db()
 
-    # Run Streamable HTTP MCP session manager using public property
-    try:
-        mgr = mcp_server.session_manager
-        if getattr(mgr, "_has_started", False):
-            mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
-            mgr = mcp_server.session_manager
-    except RuntimeError:
-        mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
-        mgr = mcp_server.session_manager
+    # Start reconciliation poller
+    poller.start()
 
+    # Run Streamable HTTP MCP session manager using public property
+    mgr = mcp_server.session_manager
     async with mgr.run():
         yield
 
     # Cleanup on shutdown
+    await poller.stop()
     await paypal_client.close()
 
 app = FastAPI(
@@ -75,27 +75,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register MCP Server Streamable HTTP Routes with DNS rebinding protection enabled
+# Register MCP Server Streamable HTTP Routes with DNS rebinding protection and explicit host configuration
+mcp_allowed_hosts = [
+    "127.0.0.1:*",
+    "localhost:*",
+    "localhost",
+    "127.0.0.1",
+    "[::1]:*",
+    "test",
+    "test:*",
+    "0.0.0.0:*",
+    "0.0.0.0",
+    f"{settings.APP_HOST}:*",
+    f"{settings.APP_HOST}",
+]
+mcp_allowed_origins = [
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://[::1]:*",
+    "http://test",
+    "http://0.0.0.0:*",
+]
+if settings.PUBLIC_HOST:
+    clean_host = settings.PUBLIC_HOST.strip().replace("https://", "").replace("http://", "").split("/")[0]
+    mcp_allowed_hosts.extend([clean_host, f"{clean_host}:*"])
+    mcp_allowed_origins.extend([f"https://{clean_host}", f"https://{clean_host}:*", f"http://{clean_host}"])
+
 mcp_sec = TransportSecuritySettings(
     enable_dns_rebinding_protection=True,
-    allowed_hosts=[
-        "127.0.0.1:*",
-        "localhost:*",
-        "[::1]:*",
-        "test",
-        "test:*",
-        "0.0.0.0:*",
-        "*.onrender.com",
-        f"{settings.APP_HOST}:*"
-    ],
-    allowed_origins=[
-        "http://127.0.0.1:*",
-        "http://localhost:*",
-        "http://[::1]:*",
-        "http://test",
-        "http://0.0.0.0:*",
-        "https://*.onrender.com"
-    ]
+    allowed_hosts=mcp_allowed_hosts,
+    allowed_origins=mcp_allowed_origins
 )
 mcp_http_app = mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
 for route in mcp_http_app.routes:
@@ -224,6 +235,18 @@ async def submit_payout_request(
 
     return payout_req
 
+@app.get("/api/v1/payout-requests", response_model=List[PayoutRequestOut])
+async def list_payout_requests(
+    status_filter: Optional[PayoutRequestStatus] = None,
+    _: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(PayoutRequestModel).order_by(PayoutRequestModel.created_at.desc())
+    if status_filter:
+        stmt = stmt.where(PayoutRequestModel.status == status_filter)
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
 @app.get("/api/v1/payout-requests/{payout_request_id}", response_model=PayoutRequestOut)
 async def get_payout_request(
     payout_request_id: str,
@@ -308,3 +331,29 @@ async def operator_cancel_request(
     await db.commit()
     await db.refresh(cancelled_req)
     return cancelled_req
+
+@app.post("/api/v1/reconciliation/poll")
+async def trigger_reconciliation(
+    _: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually triggers a reconciliation cycle against PayPal Payouts.
+    Scans for SUBMITTED and UNCLAIMED requests and updates their terminal states.
+    """
+    updated_count = await reconcile_all_pending(db)
+    return {
+        "status": "success",
+        "reconciled_count": updated_count
+    }
+
+# --- Operator AG Grid Static Console ---
+os.makedirs("src/static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
+
+@app.get("/")
+async def serve_dashboard():
+    dashboard_path = os.path.join("src", "static", "index.html")
+    if os.path.exists(dashboard_path):
+        return FileResponse(dashboard_path)
+    return {"message": "PayAgent Guardian API is running. Visit /docs for Swagger UI."}

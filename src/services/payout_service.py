@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import Tuple, Dict, Any, Optional
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
@@ -24,11 +25,16 @@ async def dispatch_payout(
 ) -> PayoutRequestModel:
     """
     Dispatches an approved payout to PayPal using stored IDs for idempotency.
+    Uses Write-Ahead SUBMITTED pattern: commits SUBMITTED to disk before calling PayPal,
+    and commits payout_batch_id immediately upon PayPal response.
     On definite 4xx rejections, transitions to FAILED and releases the budget reservation.
     On timeouts, network errors, or 5xx responses, keeps the request SUBMITTED and retains IDs for reconciliation.
     """
+    # Write-ahead SUBMITTED: commit before calling PayPal so a crash leaves request SUBMITTED for the poller
     if payout_req.status != PayoutRequestStatus.SUBMITTED:
         await transition_payout_request_status(db, payout_req, PayoutRequestStatus.SUBMITTED)
+        await db.commit()
+        await db.refresh(payout_req)
 
     try:
         pp_resp = await paypal_client.create_single_payout(
@@ -39,16 +45,29 @@ async def dispatch_payout(
             currency=task.currency,
             note=f"Task payout for {task.title}"
         )
+        # Commit payout_batch_id write-ahead immediately so poller has it even if subsequent item transitions fail
         payout_req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
+        await db.commit()
+        await db.refresh(payout_req)
 
         if "items" in pp_resp and len(pp_resp["items"]) > 0:
             item_data = pp_resp["items"][0]
-            item_model = PayoutItemModel(
-                payout_item_id=item_data["payout_item_id"],
-                payout_request_id=payout_req.payout_request_id,
-                transaction_status=item_data.get("transaction_status", "SUCCESS")
-            )
-            db.add(item_model)
+            item_id = item_data["payout_item_id"]
+            
+            stmt = select(PayoutItemModel).where(PayoutItemModel.payout_item_id == item_id)
+            existing_item = (await db.execute(stmt)).scalar_one_or_none()
+            if not existing_item:
+                item_model = PayoutItemModel(
+                    payout_item_id=item_id,
+                    payout_request_id=payout_req.payout_request_id,
+                    transaction_status=item_data.get("transaction_status", "SUCCESS"),
+                    errors=item_data.get("errors")
+                )
+                db.add(item_model)
+            else:
+                existing_item.transaction_status = item_data.get("transaction_status", "SUCCESS")
+                existing_item.errors = item_data.get("errors")
+
             item_status = item_data.get("transaction_status")
             if item_status == "SUCCESS":
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.PAID)
@@ -56,6 +75,10 @@ async def dispatch_payout(
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
             elif item_status == "UNCLAIMED":
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.UNCLAIMED)
+            elif item_status == "CANCELED":
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.CANCELED)
+            elif item_status == "RETURNED":
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.RETURNED)
 
         await db.commit()
     except httpx.HTTPStatusError as exc:
@@ -82,13 +105,16 @@ async def dispatch_payout(
         payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {str(exc)}"]
         await db.commit()
     except RuntimeError as rerr:
-        # Budget window or state machine consistency failure:
-        # Roll back transaction immediately to prevent committing inconsistent status without budget movement.
+        # Budget window or state machine consistency failure during item status transition:
+        # Roll back uncommitted changes immediately. Note that SUBMITTED and payout_batch_id were ALREADY committed above,
+        # so the payout record is preserved on disk for the poller to reconcile!
         await db.rollback()
         raise rerr
     except Exception as exc:
         await db.rollback()
         raise exc
+
+    return payout_req
 
     return payout_req
 

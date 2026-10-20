@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
     APP_HOST: str = "0.0.0.0"
     HOST: str = "0.0.0.0"
+    PUBLIC_HOST: Optional[str] = None
 
     # Database
     DATABASE_URL: Optional[str] = "sqlite+aiosqlite:///./data/processed/payagent.db"

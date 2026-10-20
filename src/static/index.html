@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PayAgent AI — Autonomous Financial Guardian Console</title>
+    <!-- AG Grid Community Styles & Script -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/styles/ag-grid.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/styles/ag-theme-alpine.css" />
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/dist/ag-grid-community.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --border-color: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-blue: #0284c7;
+            --accent-cyan: #06b6d4;
+            --badge-green: #10b981;
+            --badge-amber: #f59e0b;
+            --badge-red: #ef4444;
+            --badge-purple: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-badge {
+            background: linear-gradient(135deg, #0284c7, #38bdf8);
+            color: white;
+            font-weight: 800;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 1rem;
+            letter-spacing: 0.5px;
+        }
+
+        .brand-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .brand-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .input-token {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            width: 260px;
+        }
+
+        .btn {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .btn-secondary:hover {
+            color: var(--text-primary);
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-action-approve {
+            background-color: #059669;
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .btn-action-reject {
+            background-color: #dc2626;
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .btn-action-cancel {
+            background-color: #6d28d9;
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        main {
+            padding: 1.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            flex: 1;
+        }
+
+        .metrics-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .metric-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #38bdf8;
+        }
+
+        .grid-section {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .grid-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .grid-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ag-theme-alpine-dark {
+            --ag-background-color: #1e293b;
+            --ag-header-background-color: #0f172a;
+            --ag-odd-row-background-color: #182234;
+            --ag-border-color: #334155;
+            --ag-row-hover-color: #273549;
+            --ag-selected-row-background-color: #334155;
+            --ag-foreground-color: #f8fafc;
+            border-radius: 6px;
+            overflow: hidden;
+            font-size: 0.85rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .badge-PAID { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .badge-PENDING_HUMAN_APPROVAL { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+        .badge-POLICY_REJECTED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .badge-FAILED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .badge-SUBMITTED { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid #0284c7; }
+        .badge-UNCLAIMED { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #8b5cf6; }
+        .badge-CANCELED { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #94a3b8; }
+        .badge-OPEN { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
+
+        .risk-badge {
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .risk-low { color: #34d399; }
+        .risk-med { color: #fbbf24; }
+        .risk-high { color: #f87171; }
+
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: #0284c7;
+            color: white;
+            padding: 0.75rem 1.25rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <span class="logo-badge">PayAgent AI</span>
+            <div>
+                <div class="brand-title">Financial Guardian & Swarm Payout Console</div>
+                <div class="brand-subtitle">Powered by AG Grid & PayPal Sandbox Payouts v1</div>
+            </div>
+        </div>
+        <div class="controls">
+            <input type="password" id="operatorToken" class="input-token" placeholder="Operator Token" value="payagent-operator-demo-secret" />
+            <button class="btn btn-secondary" onclick="triggerPoller()">🔄 Reconcile Poller</button>
+            <button class="btn" onclick="refreshData()">⚡ Refresh Live</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="metrics-bar">
+            <div class="metric-card">
+                <span class="metric-label">Total Payout Volume</span>
+                <span class="metric-value" id="metricTotalVol">$0.00</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Pending HITL Approvals</span>
+                <span class="metric-value" id="metricPending" style="color: #fbbf24;">0</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Completed Settlements</span>
+                <span class="metric-value" id="metricPaid" style="color: #34d399;">0</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Registered Tasks</span>
+                <span class="metric-value" id="metricTasks" style="color: #a78bfa;">0</span>
+            </div>
+        </div>
+
+        <div class="grid-section">
+            <div class="grid-header">
+                <div class="grid-title">🛡️ Guardian Payout Requests & Audit Log</div>
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">Auto-refreshes every 3 seconds</span>
+            </div>
+            <div id="payoutGrid" class="ag-theme-alpine-dark" style="height: 380px; width: 100%;"></div>
+        </div>
+
+        <div class="grid-section">
+            <div class="grid-header">
+                <div class="grid-title">📋 Operator Task Contract Registry</div>
+            </div>
+            <div id="taskGrid" class="ag-theme-alpine-dark" style="height: 250px; width: 100%;"></div>
+        </div>
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById("toast");
+            toast.innerText = msg;
+            toast.style.background = isError ? "#dc2626" : "#0284c7";
+            toast.style.display = "block";
+            setTimeout(() => { toast.style.display = "none"; }, 3500);
+        }
+
+        function getAuthHeaders() {
+            const token = document.getElementById("operatorToken").value.trim();
+            return {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            };
+        }
+
+        // Payout Grid Columns
+        const payoutColumnDefs = [
+            { 
+                field: "payout_request_id", 
+                headerName: "Request ID", 
+                width: 140,
+                cellRenderer: p => `<span title="${p.value}">${p.value ? p.value.substring(0, 10) + '...' : ''}</span>`
+            },
+            { field: "task_id", headerName: "Task ID", width: 160 },
+            { field: "agent_id", headerName: "Agent", width: 150 },
+            { 
+                field: "amount", 
+                headerName: "Amount", 
+                width: 110,
+                cellRenderer: p => `<strong>$${parseFloat(p.value).toFixed(2)}</strong>`
+            },
+            { 
+                field: "status", 
+                headerName: "Status", 
+                width: 170,
+                cellRenderer: p => `<span class="status-badge badge-${p.value}">${p.value}</span>`
+            },
+            { 
+                field: "risk_score", 
+                headerName: "Risk", 
+                width: 90,
+                cellRenderer: p => {
+                    if (p.value == null) return "-";
+                    const score = parseFloat(p.value);
+                    const cls = score < 0.3 ? "risk-low" : (score < 0.7 ? "risk-med" : "risk-high");
+                    return `<span class="risk-badge ${cls}">${(score * 100).toFixed(0)}%</span>`;
+                }
+            },
+            { 
+                field: "decision_reasons", 
+                headerName: "Decision Reasons", 
+                flex: 1,
+                cellRenderer: p => Array.isArray(p.value) ? p.value.join(", ") : (p.value || "")
+            },
+            { 
+                field: "sender_batch_id", 
+                headerName: "Sender Batch ID", 
+                width: 160,
+                cellRenderer: p => `<span title="${p.value}">${p.value ? p.value.substring(0, 14) + '...' : ''}</span>`
+            },
+            {
+                headerName: "Actions",
+                width: 220,
+                cellRenderer: p => {
+                    const row = p.data;
+                    let btns = '';
+                    if (row.status === "PENDING_HUMAN_APPROVAL") {
+                        btns += `<button class="btn-action-approve" onclick="approveRequest('${row.payout_request_id}')">Approve</button>`;
+                        btns += `<button class="btn-action-reject" onclick="rejectRequest('${row.payout_request_id}')">Reject</button>`;
+                    }
+                    if (row.status === "UNCLAIMED") {
+                        btns += `<button class="btn-action-cancel" onclick="cancelRequest('${row.payout_request_id}')">Cancel Recall</button>`;
+                    }
+                    return btns || '<span style="color: #64748b; font-size: 0.75rem;">None</span>';
+                }
+            }
+        ];
+
+        // Task Grid Columns
+        const taskColumnDefs = [
+            { field: "task_id", headerName: "Task ID", width: 180 },
+            { field: "title", headerName: "Title", flex: 1 },
+            { 
+                field: "budget", 
+                headerName: "Budget", 
+                width: 120,
+                cellRenderer: p => `$${parseFloat(p.value).toFixed(2)}`
+            },
+            { field: "allowed_recipient", headerName: "Allowed Recipient", width: 220 },
+            { field: "assigned_agent_id", headerName: "Assigned Agent", width: 170 },
+            { 
+                field: "status", 
+                headerName: "Status", 
+                width: 130,
+                cellRenderer: p => `<span class="status-badge badge-${p.value}">${p.value}</span>`
+            }
+        ];
+
+        let payoutGridApi = null;
+        let taskGridApi = null;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const savedToken = localStorage.getItem("payagent_token");
+            if (savedToken) {
+                document.getElementById("operatorToken").value = savedToken;
+            }
+            document.getElementById("operatorToken").addEventListener("change", (e) => {
+                localStorage.setItem("payagent_token", e.target.value.trim());
+            });
+
+            // Initialize AG Grids
+            const payoutGridDiv = document.querySelector("#payoutGrid");
+            payoutGridApi = agGrid.createGrid(payoutGridDiv, {
+                columnDefs: payoutColumnDefs,
+                rowData: [],
+                pagination: true,
+                paginationPageSize: 10,
+                defaultColDef: { sortable: true, filter: true, resizable: true }
+            });
+
+            const taskGridDiv = document.querySelector("#taskGrid");
+            taskGridApi = agGrid.createGrid(taskGridDiv, {
+                columnDefs: taskColumnDefs,
+                rowData: [],
+                defaultColDef: { sortable: true, filter: true, resizable: true }
+            });
+
+            refreshData();
+            setInterval(refreshData, 3000);
+        });
+
+        async function refreshData() {
+            try {
+                const headers = getAuthHeaders();
+                
+                // Fetch Payout Requests
+                const payoutRes = await fetch("/api/v1/payout-requests", { headers });
+                if (payoutRes.ok) {
+                    const payouts = await payoutRes.json();
+                    if (payoutGridApi) payoutGridApi.setGridOption("rowData", payouts);
+
+                    // Compute metrics
+                    let totalVol = 0;
+                    let pendingCount = 0;
+                    let paidCount = 0;
+                    payouts.forEach(p => {
+                        if (p.status === "PAID") {
+                            totalVol += parseFloat(p.amount);
+                            paidCount++;
+                        }
+                        if (p.status === "PENDING_HUMAN_APPROVAL") {
+                            pendingCount++;
+                        }
+                    });
+                    document.getElementById("metricTotalVol").innerText = `$${totalVol.toFixed(2)}`;
+                    document.getElementById("metricPending").innerText = pendingCount;
+                    document.getElementById("metricPaid").innerText = paidCount;
+                }
+
+                // Fetch Tasks
+                const taskRes = await fetch("/api/v1/tasks", { headers });
+                if (taskRes.ok) {
+                    const tasks = await taskRes.json();
+                    if (taskGridApi) taskGridApi.setGridOption("rowData", tasks);
+                    document.getElementById("metricTasks").innerText = tasks.length;
+                }
+            } catch (err) {
+                console.error("Refresh error:", err);
+            }
+        }
+
+        async function triggerPoller() {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch("/api/v1/reconciliation/poll", { method: "POST", headers });
+                const data = await res.json();
+                showToast(`Poller cycle complete: ${data.reconciled_count || 0} items updated.`);
+                refreshData();
+            } catch (err) {
+                showToast("Failed to run reconciliation poller", true);
+            }
+        }
+
+        async function approveRequest(id) {
+            try {
+                const res = await fetch(`/api/v1/payout-requests/${id}/approve`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    showToast(`Approved payout ${id.substring(0, 8)}...`);
+                    refreshData();
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Approval failed", true);
+                }
+            } catch (err) {
+                showToast("Network error approving request", true);
+            }
+        }
+
+        async function rejectRequest(id) {
+            try {
+                const res = await fetch(`/api/v1/payout-requests/${id}/reject`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    showToast(`Rejected payout ${id.substring(0, 8)}...`);
+                    refreshData();
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Rejection failed", true);
+                }
+            } catch (err) {
+                showToast("Network error rejecting request", true);
+            }
+        }
+
+        async function cancelRequest(id) {
+            try {
+                const res = await fetch(`/api/v1/payout-requests/${id}/cancel`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    showToast(`Recalled and cancelled unclaimed payout ${id.substring(0, 8)}...`);
+                    refreshData();
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Cancel failed", true);
+                }
+            } catch (err) {
+                showToast("Network error cancelling request", true);
+            }
+        }
+    </script>
+</body>
+</html>

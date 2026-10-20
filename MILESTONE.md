@@ -25,11 +25,14 @@
   - Status lookups enforce role-based authentication.
 
 ### Remaining M1 Vertical Slice Items (Tracked Before M2 Guardian Depth)
-- [ ] 6. Reconciliation Poller (`src/services/poller.py`): Periodic poller query (`GET /v1/payments/payouts/{id}`) updating live batch/item statuses to allow live sandbox payouts to progress from `SUBMITTED` to terminal states.
-- [ ] 7. Demo Seed Data Script (`src/seed.py`): Seed demo agents, tasks, and sandbox recipient email from `SANDBOX_RECIPIENT_EMAIL`.
-- [ ] 8. Operator Console Page (`src/static/index.html`): AG Grid layout displaying real-time task and payout-request status.
-- [ ] 9. Demo Agent Script (`scripts/demo_agent.py`): Standalone scripted agent for end-to-end task execution and payout submission.
+- [x] 6. Reconciliation Poller (`src/services/poller.py`): Periodic poller query (`GET /v1/payments/payouts/{id}`) updating live batch/item statuses to allow live sandbox payouts to progress from `SUBMITTED` to terminal states. Implements Write-Ahead `SUBMITTED` commit pattern and recovers ambiguous cancellations after 504 timeouts.
+- [x] 7. Demo Seed Data Script (`src/seed.py`): Seeds demo agents (`agent-code-reviewer-01`, `agent-data-labeler-02`), tasks (`task-pr-audit-101`, `task-high-value-102`), and recipient email dynamically configured from `SANDBOX_RECIPIENT_EMAIL`.
+- [x] 8. Operator Console Page (`src/static/index.html`): AG Grid layout displaying real-time task and payout-request status, budget burn metrics, and interactive HITL Approve/Reject and Cancel action buttons.
+- [x] 9. Demo Agent Script (`scripts/demo_agent.py`): Standalone scripted agent demonstrating happy path (auto-approval), high-value escalation (HITL queue), and adversarial over-budget defense.
 - [ ] 10. Live Sandbox Verification: End-to-end sandbox verification reaching `PAID` status against `https://api-m.sandbox.paypal.com`.
+
+### Logged Milestone 3 Tasks (Deploy & Polish)
+- [ ] M3.MCP-Render: Configure `PUBLIC_HOST` environment variable on Render (e.g. `payagent-ai.onrender.com`) in `mcp_sec.allowed_hosts` and `allowed_origins` to prevent 421 "Invalid Host header" errors under mcp 2.3.0 exact match semantics.
 
 ### Review Gate Instructions (for Auditor)
 - Scope check: Diff against `main` / previous commit only.
