@@ -61,14 +61,16 @@ async def evaluate_gate1(
     agent: AgentModel,
     payload: PayoutRequestIn,
     artifact_sha256: str
-) -> Tuple[bool, int, str, Optional[TaskModel]]:
+) -> Tuple[bool, int, str, Optional[TaskModel], str]:
     """
     Evaluates Gate 1 canonical decision table rows 2-8.
-    Returns: (passed: bool, http_status_code: int, reason_code: str, task: Optional[TaskModel])
+    Returns: (passed: bool, http_status_code: int, reason_code: str, task: Optional[TaskModel], hour_bucket: str)
     """
+    hour_bucket = get_current_hour_window()
+
     # Row 2: Agent Quarantined
     if agent.status == AgentStatus.QUARANTINED:
-        return False, 403, DecisionReason.AGENT_QUARANTINED.value, None
+        return False, 403, DecisionReason.AGENT_QUARANTINED.value, None, hour_bucket
 
     # Fetch task
     stmt = select(TaskModel).where(TaskModel.task_id == payload.task_id)
@@ -77,35 +79,47 @@ async def evaluate_gate1(
 
     # Row 3: Task not found / not OPEN / not assigned to this agent
     if not task or task.status != TaskStatus.OPEN or task.assigned_agent_id != agent.agent_id:
-        return False, 403, DecisionReason.TASK_NOT_ASSIGNED.value, task
+        return False, 403, DecisionReason.TASK_NOT_ASSIGNED.value, task, hour_bucket
 
     # Row 4: Past deadline
     if utc_now() > task.deadline:
-        return False, 422, DecisionReason.TASK_EXPIRED.value, task
+        return False, 422, DecisionReason.TASK_EXPIRED.value, task, hour_bucket
 
     # Row 5: Amount > task.budget
     if payload.amount > task.budget:
         await record_incident_and_check_circuit_breaker(db, agent, DecisionReason.OVER_TASK_BUDGET.value)
-        return False, 422, DecisionReason.OVER_TASK_BUDGET.value, task
+        return False, 422, DecisionReason.OVER_TASK_BUDGET.value, task, hour_bucket
 
     # Row 6: Deliverable keys != required_deliverables
     expected_keys = set(task.required_deliverables)
     provided_keys = set(payload.deliverables.keys())
     if provided_keys != expected_keys:
         await record_incident_and_check_circuit_breaker(db, agent, DecisionReason.DELIVERABLES_INCOMPLETE.value)
-        return False, 422, DecisionReason.DELIVERABLES_INCOMPLETE.value, task
+        return False, 422, DecisionReason.DELIVERABLES_INCOMPLETE.value, task, hour_bucket
 
-    # Row 7: artifact_sha256 already used
-    stmt = select(PayoutRequestModel).where(PayoutRequestModel.artifact_sha256 == artifact_sha256)
+    # Row 7: artifact_sha256 already used in an active or completed request
+    # Does NOT burn rejected or failed attempts (an agent can correct amount and resubmit)
+    stmt = (
+        select(PayoutRequestModel)
+        .where(
+            PayoutRequestModel.artifact_sha256 == artifact_sha256,
+            PayoutRequestModel.status.in_([
+                PayoutRequestStatus.APPROVED,
+                PayoutRequestStatus.PENDING_HUMAN_APPROVAL,
+                PayoutRequestStatus.SUBMITTED,
+                PayoutRequestStatus.PAID,
+                PayoutRequestStatus.UNCLAIMED,
+            ])
+        )
+        .limit(1)
+    )
     res = await db.execute(stmt)
-    existing_artifact = res.scalar_one_or_none()
+    existing_artifact = res.scalars().first()
     if existing_artifact:
         await record_incident_and_check_circuit_breaker(db, agent, DecisionReason.ARTIFACT_REPLAY.value)
-        return False, 409, DecisionReason.ARTIFACT_REPLAY.value, task
+        return False, 409, DecisionReason.ARTIFACT_REPLAY.value, task, hour_bucket
 
     # Row 8: Atomic budget reservation update
-    hour_bucket = get_current_hour_window()
-    
     # Ensure budget window row exists for (agent_id, hour_bucket)
     stmt = select(BudgetWindowModel).where(
         BudgetWindowModel.agent_id == agent.agent_id,
@@ -137,9 +151,9 @@ async def evaluate_gate1(
     update_res = await db.execute(update_stmt)
     if update_res.rowcount == 0:
         await record_incident_and_check_circuit_breaker(db, agent, DecisionReason.VELOCITY_CAP.value)
-        return False, 429, DecisionReason.VELOCITY_CAP.value, task
+        return False, 429, DecisionReason.VELOCITY_CAP.value, task, hour_bucket
 
-    return True, 200, "OK", task
+    return True, 200, "OK", task, hour_bucket
 
 def evaluate_gate2_and_decision(
     amount: Decimal,

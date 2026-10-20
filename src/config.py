@@ -1,6 +1,7 @@
 import os
 from typing import Optional
 from decimal import Decimal
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -10,11 +11,13 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     DEMO_MODE: bool = True
+    APP_PORT: int = 8000
     PORT: int = 8000
+    APP_HOST: str = "0.0.0.0"
     HOST: str = "0.0.0.0"
 
     # Database
-    DATABASE_URL: Optional[str] = None  # If None, defaults to sqlite+aiosqlite:///./data/payagent.db
+    DATABASE_URL: Optional[str] = "sqlite+aiosqlite:///./data/processed/payagent.db"
 
     # Auth
     OPERATOR_TOKEN: str = "payagent-operator-demo-secret"
@@ -23,18 +26,63 @@ class Settings(BaseSettings):
     MAX_SINGLE_TASK_AUTO_APPROVE: Decimal = Decimal("50.00")
     MAX_AGENT_HOURLY_VELOCITY: Decimal = Decimal("200.00")
     MIN_LLM_CONFIDENCE: float = 0.75
+    CIRCUIT_BREAKER_INCIDENTS: int = 3
     CIRCUIT_BREAKER_INCIDENT_THRESHOLD: int = 3
+    CIRCUIT_BREAKER_WINDOW_MINUTES: int = 10
     CIRCUIT_BREAKER_WINDOW_SECONDS: int = 600
 
     # PayPal Integration
     PAYPAL_CLIENT_ID: str = "mock-client-id"
     PAYPAL_CLIENT_SECRET: str = "mock-client-secret"
+    PAYPAL_MODE: str = "sandbox"
     PAYPAL_BASE_URL: str = "https://api-m.sandbox.paypal.com"
     PAYPAL_WEBHOOK_ID: Optional[str] = None
-    MOCK_PAYPAL: bool = True
+    SANDBOX_RECIPIENT_EMAIL: Optional[str] = None
+    MOCK_PAYPAL: bool = False
 
     # LLM (Gate 2)
+    OPENAI_API_KEY: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gpt-4o-mini"
+    LLM_TIMEOUT_SECONDS: int = 10
+
+    @model_validator(mode="after")
+    def align_settings(self):
+        # Sync APP_PORT / PORT
+        if self.APP_PORT != 8000 and self.PORT == 8000:
+            self.PORT = self.APP_PORT
+        elif self.PORT != 8000 and self.APP_PORT == 8000:
+            self.APP_PORT = self.PORT
+
+        # Sync APP_HOST / HOST
+        if self.APP_HOST != "0.0.0.0" and self.HOST == "0.0.0.0":
+            self.HOST = self.APP_HOST
+        elif self.HOST != "0.0.0.0" and self.APP_HOST == "0.0.0.0":
+            self.APP_HOST = self.HOST
+
+        # Sync LLM API Key
+        if not self.LLM_API_KEY and self.OPENAI_API_KEY:
+            self.LLM_API_KEY = self.OPENAI_API_KEY
+        elif not self.OPENAI_API_KEY and self.LLM_API_KEY:
+            self.OPENAI_API_KEY = self.LLM_API_KEY
+
+        # Sync Circuit breaker params
+        if self.CIRCUIT_BREAKER_WINDOW_MINUTES != 10 and self.CIRCUIT_BREAKER_WINDOW_SECONDS == 600:
+            self.CIRCUIT_BREAKER_WINDOW_SECONDS = self.CIRCUIT_BREAKER_WINDOW_MINUTES * 60
+        elif self.CIRCUIT_BREAKER_WINDOW_SECONDS != 600 and self.CIRCUIT_BREAKER_WINDOW_MINUTES == 10:
+            self.CIRCUIT_BREAKER_WINDOW_MINUTES = max(1, self.CIRCUIT_BREAKER_WINDOW_SECONDS // 60)
+
+        if self.CIRCUIT_BREAKER_INCIDENTS != 3 and self.CIRCUIT_BREAKER_INCIDENT_THRESHOLD == 3:
+            self.CIRCUIT_BREAKER_INCIDENT_THRESHOLD = self.CIRCUIT_BREAKER_INCIDENTS
+        elif self.CIRCUIT_BREAKER_INCIDENT_THRESHOLD != 3 and self.CIRCUIT_BREAKER_INCIDENTS == 3:
+            self.CIRCUIT_BREAKER_INCIDENTS = self.CIRCUIT_BREAKER_INCIDENT_THRESHOLD
+
+        # Validate production security
+        if self.APP_ENV == "production":
+            insecure_defaults = {"payagent-operator-demo-secret", "change-me-demo-operator-token"}
+            if not self.OPERATOR_TOKEN or self.OPERATOR_TOKEN in insecure_defaults:
+                raise ValueError("OPERATOR_TOKEN must be securely set in production environment")
+
+        return self
 
 settings = Settings()

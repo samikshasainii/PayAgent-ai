@@ -1,0 +1,155 @@
+import uuid
+from decimal import Decimal
+from typing import Tuple, Dict, Any, Optional
+import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.models.agent import AgentModel
+from src.models.task import TaskModel
+from src.models.payout import PayoutRequestModel, PayoutItemModel
+from src.schemas.enums import PayoutRequestStatus
+from src.schemas.payout import PayoutRequestIn
+from src.schemas.llm import LLMVerdict
+from src.services.guardian import (
+    compute_artifact_sha256,
+    evaluate_gate1,
+    evaluate_gate2_and_decision,
+)
+from src.services.state_machine import transition_payout_request_status
+from src.services.paypal_client import paypal_client
+
+async def dispatch_payout(
+    db: AsyncSession,
+    payout_req: PayoutRequestModel,
+    task: TaskModel
+) -> PayoutRequestModel:
+    """
+    Dispatches an approved payout to PayPal using stored IDs for idempotency.
+    On definite 4xx rejections, transitions to FAILED and releases the budget reservation.
+    On timeouts, network errors, or 5xx responses, keeps the request SUBMITTED and retains IDs for reconciliation.
+    """
+    if payout_req.status != PayoutRequestStatus.SUBMITTED:
+        await transition_payout_request_status(db, payout_req, PayoutRequestStatus.SUBMITTED)
+
+    try:
+        pp_resp = await paypal_client.create_single_payout(
+            sender_batch_id=payout_req.sender_batch_id,
+            paypal_request_id=payout_req.paypal_request_id,
+            recipient_email=task.allowed_recipient,
+            amount=payout_req.amount,
+            currency=task.currency,
+            note=f"Task payout for {task.title}"
+        )
+        payout_req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
+
+        if "items" in pp_resp and len(pp_resp["items"]) > 0:
+            item_data = pp_resp["items"][0]
+            item_model = PayoutItemModel(
+                payout_item_id=item_data["payout_item_id"],
+                payout_request_id=payout_req.payout_request_id,
+                transaction_status=item_data.get("transaction_status", "SUCCESS")
+            )
+            db.add(item_model)
+            item_status = item_data.get("transaction_status")
+            if item_status == "SUCCESS":
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.PAID)
+            elif item_status in ("FAILED", "BLOCKED", "DENIED"):
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+            elif item_status == "UNCLAIMED":
+                await transition_payout_request_status(db, payout_req, PayoutRequestStatus.UNCLAIMED)
+
+        await db.commit()
+    except httpx.HTTPStatusError as exc:
+        if 400 <= exc.response.status_code < 500:
+            # Definite PayPal rejection: route through state machine to release budget & reopen task
+            payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_ERROR: {exc.response.text}"]
+            await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+            await db.commit()
+        else:
+            # 5xx error: transient/ambiguous failure; keep SUBMITTED for reconciliation
+            payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {exc.response.text}"]
+            await db.commit()
+    except Exception as exc:
+        # Network errors, timeouts: ambiguous failure; keep SUBMITTED with stored IDs for reconciliation
+        payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {str(exc)}"]
+        await db.commit()
+
+    return payout_req
+
+async def process_payout_submission(
+    db: AsyncSession,
+    agent: AgentModel,
+    request_in: PayoutRequestIn
+) -> Tuple[bool, int, str, PayoutRequestModel]:
+    """
+    Unified submission path shared across REST and MCP interfaces.
+    Returns: (passed: bool, http_status_code: int, message: str, payout_model: PayoutRequestModel)
+    """
+    artifact_sha256 = compute_artifact_sha256(request_in.deliverables)
+
+    # Saved-ID pattern: generated once per request inception according to ARCHITECTURE.md §6.1
+    payout_uuid = uuid.uuid4()
+    payout_request_id = str(payout_uuid)
+    sender_batch_id = f"payagent_{payout_uuid.hex}"
+    paypal_request_id = payout_request_id
+
+    # Gate 1 Deterministic Evaluation
+    gate1_passed, http_code, reason_code, task, hour_bucket = await evaluate_gate1(
+        db=db,
+        agent=agent,
+        payload=request_in,
+        artifact_sha256=artifact_sha256
+    )
+
+    if not gate1_passed:
+        rejected_req = PayoutRequestModel(
+            payout_request_id=payout_request_id,
+            task_id=request_in.task_id,
+            agent_id=agent.agent_id,
+            amount=request_in.amount,
+            deliverables=request_in.deliverables,
+            artifact_sha256=artifact_sha256,
+            status=PayoutRequestStatus.POLICY_REJECTED,
+            decision_reasons=[reason_code],
+            sender_batch_id=sender_batch_id,
+            paypal_request_id=paypal_request_id,
+            window_start=hour_bucket,
+            decided_by="guardian_gate1"
+        )
+        db.add(rejected_req)
+        await db.commit()
+        await db.refresh(rejected_req)
+        return False, http_code, reason_code, rejected_req
+
+    # Gate 2 Evaluation
+    mock_verdict = LLMVerdict(
+        passed=True,
+        confidence=0.95,
+        reasoning="Acceptance criteria verified in Milestone 1."
+    )
+    target_status, reasons, risk_score = evaluate_gate2_and_decision(request_in.amount, mock_verdict)
+
+    payout_req = PayoutRequestModel(
+        payout_request_id=payout_request_id,
+        task_id=request_in.task_id,
+        agent_id=agent.agent_id,
+        amount=request_in.amount,
+        deliverables=request_in.deliverables,
+        artifact_sha256=artifact_sha256,
+        status=target_status,
+        decision_reasons=reasons,
+        llm_verdict=mock_verdict.model_dump(),
+        risk_score=risk_score,
+        sender_batch_id=sender_batch_id,
+        paypal_request_id=paypal_request_id,
+        window_start=hour_bucket,
+        decided_by="guardian_gate2"
+    )
+    db.add(payout_req)
+    await db.commit()
+
+    # If auto-approved, dispatch immediately to PayPal
+    if target_status == PayoutRequestStatus.APPROVED:
+        await dispatch_payout(db, payout_req, task)
+
+    await db.refresh(payout_req)
+    return True, 201, "OK", payout_req

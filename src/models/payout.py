@@ -23,6 +23,7 @@ class PayoutRequestModel(Base):
     sender_batch_id = Column(String(64), unique=True, nullable=False, index=True)
     paypal_request_id = Column(String(64), unique=True, nullable=False, index=True)
     payout_batch_id = Column(String(64), nullable=True, index=True)
+    window_start = Column(String(32), nullable=True, index=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     decided_by = Column(String(64), nullable=True)
 

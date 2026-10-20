@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.routing import Route
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,35 +12,48 @@ from src.config import settings
 from src.database import init_db, get_db
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
-from src.models.payout import PayoutRequestModel, PayoutItemModel
-from src.schemas.enums import TaskStatus, PayoutRequestStatus, AgentStatus, DecisionReason
+from src.models.payout import PayoutRequestModel
+from src.schemas.enums import TaskStatus, PayoutRequestStatus, AgentStatus
 from src.schemas.task import TaskCreate, TaskOut
 from src.schemas.agent import AgentCreate, AgentOut
 from src.schemas.payout import PayoutRequestIn, PayoutRequestOut
-from src.schemas.llm import LLMVerdict
 from src.services.auth import (
     hash_api_key,
     generate_api_key,
     get_authenticated_agent,
+    get_authenticated_caller,
     require_operator_token,
-)
-from src.services.guardian import (
-    compute_artifact_sha256,
-    evaluate_gate1,
-    evaluate_gate2_and_decision,
 )
 from src.services.state_machine import (
     transition_payout_request_status,
     cancel_unclaimed_payout_request,
 )
 from src.services.paypal_client import paypal_client
+from src.services.payout_service import process_payout_submission, dispatch_payout
 from src.mcp_server.server import mcp_server
+from mcp.server.transport_security import TransportSecuritySettings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Production security guard
+    if settings.APP_ENV == "production":
+        insecure_tokens = {"payagent-operator-demo-secret", "change-me-demo-operator-token"}
+        if not settings.OPERATOR_TOKEN or settings.OPERATOR_TOKEN in insecure_tokens:
+            raise ValueError("OPERATOR_TOKEN must be securely configured in production environment.")
+
     # Initialize DB tables on startup
     await init_db()
-    yield
+
+    # Run Streamable HTTP MCP session manager during app lifecycle
+    mgr = mcp_server._lowlevel_server._session_manager
+    if getattr(mgr, "_has_started", False):
+        mcp_sec_inner = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec_inner)
+        mgr = mcp_server._lowlevel_server._session_manager
+
+    async with mgr.run():
+        yield
+
     # Cleanup on shutdown
     await paypal_client.close()
 
@@ -58,8 +72,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount MCP Server Streamable HTTP App
-app.mount("/mcp", mcp_server.streamable_http_app())
+# Register MCP Server Streamable HTTP Routes directly
+mcp_sec = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+mcp_http_app = mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
+for route in mcp_http_app.routes:
+    app.routes.append(route)
+    if isinstance(route, Route) and route.path == "/mcp":
+        app.routes.append(Route("/mcp/", endpoint=route.endpoint))
 
 # --- Operator Task Endpoints ---
 
@@ -164,108 +183,28 @@ async def submit_payout_request(
     agent: AgentModel = Depends(get_authenticated_agent),
     db: AsyncSession = Depends(get_db)
 ):
-    artifact_sha256 = compute_artifact_sha256(request_in.deliverables)
-
-    # Saved-ID pattern: generated once per request inception and stored
-    payout_request_id = str(uuid.uuid4())
-    sender_batch_id = f"payagent_{uuid.uuid4().hex}"
-    paypal_request_id = payout_request_id
-
-    # Gate 1 Deterministic Evaluation
-    gate1_passed, http_code, reason_code, task = await evaluate_gate1(
+    passed, http_code, reason_code, payout_req = await process_payout_submission(
         db=db,
         agent=agent,
-        payload=request_in,
-        artifact_sha256=artifact_sha256
+        request_in=request_in
     )
 
-    if not gate1_passed:
-        # Record rejected request
-        rejected_req = PayoutRequestModel(
-            payout_request_id=payout_request_id,
-            task_id=request_in.task_id,
-            agent_id=agent.agent_id,
-            amount=request_in.amount,
-            deliverables=request_in.deliverables,
-            artifact_sha256=artifact_sha256,
-            status=PayoutRequestStatus.POLICY_REJECTED,
-            decision_reasons=[reason_code],
-            sender_batch_id=sender_batch_id,
-            paypal_request_id=paypal_request_id,
-            decided_by="guardian_gate1"
-        )
-        db.add(rejected_req)
-        await db.commit()
+    if not passed:
         raise HTTPException(
             status_code=http_code,
             detail={
                 "error": reason_code,
                 "status": PayoutRequestStatus.POLICY_REJECTED.value,
-                "payout_request_id": payout_request_id
+                "payout_request_id": payout_req.payout_request_id
             }
         )
 
-    # Gate 2 Evaluation
-    mock_verdict = LLMVerdict(
-        passed=True,
-        confidence=0.95,
-        reasoning="Acceptance criteria verified in Milestone 1."
-    )
-    target_status, reasons, risk_score = evaluate_gate2_and_decision(request_in.amount, mock_verdict)
-
-    payout_req = PayoutRequestModel(
-        payout_request_id=payout_request_id,
-        task_id=request_in.task_id,
-        agent_id=agent.agent_id,
-        amount=request_in.amount,
-        deliverables=request_in.deliverables,
-        artifact_sha256=artifact_sha256,
-        status=target_status,
-        decision_reasons=reasons,
-        llm_verdict=mock_verdict.model_dump(),
-        risk_score=risk_score,
-        sender_batch_id=sender_batch_id,
-        paypal_request_id=paypal_request_id,
-        decided_by="guardian_gate2"
-    )
-    db.add(payout_req)
-    await db.commit()
-
-    # If AUTO_APPROVED, dispatch to PayPal
-    if target_status == PayoutRequestStatus.APPROVED:
-        await transition_payout_request_status(db, payout_req, PayoutRequestStatus.SUBMITTED)
-        try:
-            pp_resp = await paypal_client.create_single_payout(
-                sender_batch_id=payout_req.sender_batch_id,
-                paypal_request_id=payout_req.paypal_request_id,
-                recipient_email=task.allowed_recipient,
-                amount=payout_req.amount,
-                currency=task.currency,
-                note=f"Task payout for {task.title}"
-            )
-            payout_req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
-            if "items" in pp_resp and len(pp_resp["items"]) > 0:
-                item_data = pp_resp["items"][0]
-                item_model = PayoutItemModel(
-                    payout_item_id=item_data["payout_item_id"],
-                    payout_request_id=payout_req.payout_request_id,
-                    transaction_status=item_data.get("transaction_status", "SUCCESS")
-                )
-                db.add(item_model)
-                if item_data.get("transaction_status") == "SUCCESS":
-                    await transition_payout_request_status(db, payout_req, PayoutRequestStatus.PAID)
-            await db.commit()
-        except Exception as exc:
-            payout_req.status = PayoutRequestStatus.FAILED
-            payout_req.decision_reasons = payout_req.decision_reasons + [f"PAYPAL_ERROR: {str(exc)}"]
-            await db.commit()
-
-    await db.refresh(payout_req)
     return payout_req
 
 @app.get("/api/v1/payout-requests/{payout_request_id}", response_model=PayoutRequestOut)
 async def get_payout_request(
     payout_request_id: str,
+    caller: dict = Depends(get_authenticated_caller),
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == payout_request_id)
@@ -273,6 +212,10 @@ async def get_payout_request(
     req = res.scalar_one_or_none()
     if not req:
         raise HTTPException(status_code=404, detail="Payout request not found")
+
+    if caller["role"] == "agent" and req.agent_id != caller["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to view this payout request")
+
     return req
 
 # --- Operator HITL Approval / Rejection / Cancellation Endpoints ---
@@ -290,8 +233,8 @@ async def operator_approve_request(
 
     if req.status != PayoutRequestStatus.PENDING_HUMAN_APPROVAL:
         raise HTTPException(
-            status_code=400,
-            detail=f"Only requests in PENDING_HUMAN_APPROVAL can be approved (current: {req.status.value})"
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "INVALID_STATE", "message": f"Only requests in PENDING_HUMAN_APPROVAL can be approved (current: {req.status.value})"}
         )
 
     # Approve and submit
@@ -299,27 +242,9 @@ async def operator_approve_request(
 
     task = (await db.execute(select(TaskModel).where(TaskModel.task_id == req.task_id))).scalar_one()
 
-    # Dispatch to PayPal
-    pp_resp = await paypal_client.create_single_payout(
-        sender_batch_id=req.sender_batch_id,
-        paypal_request_id=req.paypal_request_id,
-        recipient_email=task.allowed_recipient,
-        amount=req.amount,
-        currency=task.currency,
-        note=f"Task payout for {task.title}"
-    )
-    req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
-    if "items" in pp_resp and len(pp_resp["items"]) > 0:
-        item_data = pp_resp["items"][0]
-        item_model = PayoutItemModel(
-            payout_item_id=item_data["payout_item_id"],
-            payout_request_id=req.payout_request_id,
-            transaction_status=item_data.get("transaction_status", "SUCCESS")
-        )
-        db.add(item_model)
-        if item_data.get("transaction_status") == "SUCCESS":
-            await transition_payout_request_status(db, req, PayoutRequestStatus.PAID)
-    await db.commit()
+    # Dispatch to PayPal via unified dispatcher
+    await dispatch_payout(db, req, task)
+
     await db.refresh(req)
     return req
 
@@ -336,8 +261,8 @@ async def operator_reject_request(
 
     if req.status != PayoutRequestStatus.PENDING_HUMAN_APPROVAL:
         raise HTTPException(
-            status_code=400,
-            detail=f"Only requests in PENDING_HUMAN_APPROVAL can be rejected (current: {req.status.value})"
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "INVALID_STATE", "message": f"Only requests in PENDING_HUMAN_APPROVAL can be rejected (current: {req.status.value})"}
         )
 
     await transition_payout_request_status(db, req, PayoutRequestStatus.HUMAN_REJECTED, decided_by="operator")
@@ -352,8 +277,9 @@ async def operator_cancel_request(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Recalls an UNCLAIMED payout request.
-    Strictly raises 409 Conflict if request is not in UNCLAIMED state.
+    Recalls an UNCLAIMED payout request by calling PayPal's cancel endpoint first,
+    then transitioning the state and releasing budget reservation.
+    Strictly raises 409 Conflict if request is not in UNCLAIMED state or PayPal refuses.
     """
     cancelled_req = await cancel_unclaimed_payout_request(db, payout_request_id, operator_id="operator")
     await db.commit()

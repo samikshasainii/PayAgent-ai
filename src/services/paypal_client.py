@@ -15,6 +15,7 @@ class PayPalClient:
         
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
+        self._token_lock = asyncio.Lock()
         self._http_client: Optional[httpx.AsyncClient] = None
 
         # In-memory mock store for simulated sandbox responses
@@ -28,36 +29,45 @@ class PayPalClient:
 
     async def close(self):
         if self._http_client and not self._http_client.is_closed:
-            await self._http_client.aclose()
+            try:
+                await self._http_client.aclose()
+            except Exception:
+                pass
 
     async def get_access_token(self) -> str:
         """Fetch and cache OAuth2 token using dynamic expires_in TTL refresh."""
         now = time.time()
-        # Refresh when now >= expires_at - 60s
+        # Fast path with 60s buffer
         if self._access_token and now < (self._token_expires_at - 60):
             return self._access_token
 
-        if self.is_mock:
-            self._access_token = f"mock-bearer-token-{uuid.uuid4().hex[:16]}"
-            # Dynamic mock expires_in (e.g. standard 32400 seconds)
-            expires_in = 32400
+        async with self._token_lock:
+            now = time.time()
+            if self._access_token and now < (self._token_expires_at - 60):
+                return self._access_token
+
+            if self.is_mock:
+                self._access_token = f"mock-bearer-token-{uuid.uuid4().hex[:16]}"
+                expires_in = 32400
+                self._token_expires_at = now + expires_in
+                return self._access_token
+
+            client = self.get_http_client()
+            resp = await client.post(
+                f"{self.base_url}/v1/oauth2/token",
+                auth=(self.client_id, self.client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"Accept": "application/json"}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            self._access_token = data["access_token"]
+            if "expires_in" not in data:
+                raise ValueError("PayPal OAuth response missing 'expires_in'")
+            expires_in = int(data["expires_in"])
             self._token_expires_at = now + expires_in
             return self._access_token
-
-        client = self.get_http_client()
-        resp = await client.post(
-            f"{self.base_url}/v1/oauth2/token",
-            auth=(self.client_id, self.client_secret),
-            data={"grant_type": "client_credentials"},
-            headers={"Accept": "application/json"}
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-        self._access_token = data["access_token"]
-        expires_in = data.get("expires_in", 32400)
-        self._token_expires_at = now + expires_in
-        return self._access_token
 
     async def create_single_payout(
         self,
@@ -245,7 +255,13 @@ class PayPalClient:
         """Cancel an UNCLAIMED payout item."""
         if self.is_mock:
             if payout_item_id in self._mock_items:
-                self._mock_items[payout_item_id]["transaction_status"] = "CANCELED"
+                item = self._mock_items[payout_item_id]
+                status = item.get("transaction_status")
+                if status == "SUCCESS":
+                    raise RuntimeError(f"Item {payout_item_id} has already been claimed/paid and cannot be cancelled")
+                if status == "CANCELED":
+                    raise RuntimeError(f"Item {payout_item_id} has already been cancelled")
+                item["transaction_status"] = "CANCELED"
             return {
                 "payout_item_id": payout_item_id,
                 "transaction_status": "CANCELED"

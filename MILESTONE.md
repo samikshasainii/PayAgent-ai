@@ -2,14 +2,27 @@
 
 ## Current Active Milestone: M1 (Core Integrations & Pipeline Foundation)
 - **Window**: Fri Oct 23 – Sun Oct 25
-- **Goal**: Implement baseline payout integration interfaces, idempotency store, and streamable HTTP MCP transport.
+- **Goal**: Implement baseline payout integration interfaces, idempotency store, streamable HTTP MCP transport, and vertical slice pipeline.
 
-### Deliverables & Acceptance Criteria
-- [x] 1. Core Models & Schemas: Payout request/response models conforming to ARCHITECTURE.md.
-- [x] 2. Idempotency Key Handling: Saved-ID pattern implemented (stored ID approach to prevent duplicate triggers).
-- [x] 3. PayPal Client Stub / Live Endpoint Adapter: Support OAuth2 token acquisition using dynamic `expires_in` TTL refresh.
-- [x] 4. Streamable HTTP MCP Endpoint: Verified against minimum required `mcp` version specification.
-- [x] 5. Test Suite: Unit tests verifying state machine transitions (including CANCELED and RETURNED budget releases) pass with 100% green status.
+### Deliverables & Acceptance Criteria (Core Foundation - Verified)
+- [x] 1. Core Models & Schemas: Payout request/response models conforming to ARCHITECTURE.md (§4). Validates decimal precision (max 2 decimal places), forbids extra fields, and enforces server-side canonical SHA-256 artifact hashing.
+- [x] 2. Idempotency Key Handling & Error Paths: Saved-ID pattern implemented (`sender_batch_id = f"payagent_{payout_request_id.hex}"`, `paypal_request_id = payout_request_id`). Transient network/timeout errors preserve IDs and keep requests `SUBMITTED` for reconciliation. Definite 4xx rejections transition to `FAILED` and release reservations.
+- [x] 3. PayPal Client Stub / Live Endpoint Adapter: Support OAuth2 token acquisition using dynamic `expires_in` TTL refresh with 60s buffer, concurrency lock (`asyncio.Lock`), and strict removal of hardcoded TTL fallbacks in live path.
+- [x] 4. Streamable HTTP MCP Endpoint: Verified against pinned `mcp==2.3.0` specification. Session manager runs within FastAPI lifespan. Routes mounted directly at `/mcp` and `/mcp/` without redirection or double-path issues. Verified with `initialize` and `tools/list` tests over HTTP.
+- [x] 5. State Machine & Guardian Test Suite: Comprehensive test suite (11/11 tests, 100% green) running against isolated test database (`data/test_payagent.db`). Validates:
+  - Artifact replay bug fixed (permits corrected resubmissions after Gate 1 rejections without burning artifact hash).
+  - Explicit `ALLOWED_TRANSITIONS` guard table enforcing HTTP 409 on invalid transitions.
+  - `PAID -> RETURNED` deducts funds from `spent` (not `reserved`) and returns task to `OPEN`.
+  - Operator cancel recalls PayPal item via `paypal_client.cancel_unclaimed_item` first and maps PayPal refusals to HTTP 409.
+  - HITL approve/reject returns HTTP 409 on invalid states.
+  - Status lookups enforce role-based authentication.
+
+### Remaining M1 Vertical Slice Items (Tracked Before M2 Guardian Depth)
+- [ ] 6. Reconciliation Poller (`src/services/poller.py`): Periodic poller query (`GET /v1/payments/payouts/{id}`) updating live batch/item statuses to allow live sandbox payouts to progress from `SUBMITTED` to terminal states.
+- [ ] 7. Demo Seed Data Script (`src/seed.py`): Seed demo agents, tasks, and sandbox recipient email from `SANDBOX_RECIPIENT_EMAIL`.
+- [ ] 8. Operator Console Page (`src/static/index.html`): AG Grid layout displaying real-time task and payout-request status.
+- [ ] 9. Demo Agent Script (`scripts/demo_agent.py`): Standalone scripted agent for end-to-end task execution and payout submission.
+- [ ] 10. Live Sandbox Verification: End-to-end sandbox verification reaching `PAID` status against `https://api-m.sandbox.paypal.com`.
 
 ### Review Gate Instructions (for Auditor)
 - Scope check: Diff against `main` / previous commit only.

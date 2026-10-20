@@ -56,9 +56,48 @@ def require_operator_token(
     elif x_operator_token:
         token = x_operator_token.strip()
 
-    if not token or token != settings.OPERATOR_TOKEN:
+    if not token or not secrets.compare_digest(token, settings.OPERATOR_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "OPERATOR_AUTH_INVALID", "message": "Invalid or missing operator authorization"}
         )
     return True
+
+async def get_authenticated_caller(
+    authorization: Optional[str] = Header(None),
+    x_agent_key: Optional[str] = Header(None),
+    x_operator_token: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Authenticates caller as either an Operator or an Agent."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    elif x_operator_token:
+        token = x_operator_token.strip()
+    elif x_agent_key:
+        token = x_agent_key.strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "AUTH_INVALID", "message": "Authentication required"}
+        )
+
+    # Check if operator
+    if secrets.compare_digest(token, settings.OPERATOR_TOKEN):
+        return {"role": "operator", "id": "operator"}
+
+    # Check if agent
+    key_hash = hash_api_key(token)
+    stmt = select(AgentModel).where(AgentModel.api_key_hash == key_hash)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
+    if agent:
+        return {"role": "agent", "id": agent.agent_id, "agent": agent}
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"error": "AUTH_INVALID", "message": "Invalid credentials"}
+    )
+

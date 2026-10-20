@@ -5,11 +5,13 @@ from sqlalchemy.orm import declarative_base
 from src.config import settings
 
 def get_database_url() -> str:
-    url = settings.DATABASE_URL
-    if not url:
-        # Ensure data directory exists for local sqlite
-        os.makedirs("data", exist_ok=True)
-        return "sqlite+aiosqlite:///./data/payagent.db"
+    url = settings.DATABASE_URL or "sqlite+aiosqlite:///./data/processed/payagent.db"
+    if url.startswith("sqlite+aiosqlite:///"):
+        sqlite_file = url.replace("sqlite+aiosqlite:///", "", 1)
+        dir_name = os.path.dirname(sqlite_file)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        return url
     # Normalize postgres url if provided without asyncpg driver
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
