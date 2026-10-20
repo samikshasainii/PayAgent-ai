@@ -157,10 +157,6 @@ async def transition_payout_request_status(
             }
         )
 
-    request.status = new_status
-    if decided_by:
-        request.decided_by = decided_by
-
     # Fetch associated task
     stmt = select(TaskModel).where(TaskModel.task_id == request.task_id)
     res = await db.execute(stmt)
@@ -170,7 +166,7 @@ async def transition_payout_request_status(
         request.created_at.strftime("%Y-%m-%d-%H") if request.created_at else get_current_hour_window()
     )
 
-    # Handle transitions
+    # Handle budget and task transitions first; assign new_status only upon success
     if new_status == PayoutRequestStatus.PAID:
         if task:
             task.status = TaskStatus.PAID
@@ -195,6 +191,10 @@ async def transition_payout_request_status(
         if task:
             task.status = TaskStatus.PAYOUT_IN_PROGRESS
 
+    request.status = new_status
+    if decided_by:
+        request.decided_by = decided_by
+
     await db.flush()
     return request
 
@@ -206,8 +206,9 @@ async def cancel_unclaimed_payout_request(
     """
     Recalls an UNCLAIMED payout request by calling PayPal's cancel endpoint first,
     then transitioning the local state and releasing the budget reservation.
-    Strictly raises HTTP 409 Conflict if request is in any state other than UNCLAIMED
-    or if PayPal refuses cancellation.
+    Strictly raises HTTP 409 Conflict if request is in any state other than UNCLAIMED,
+    if the associated payout item is missing, or if PayPal refuses cancellation.
+    Raises HTTP 504 on network timeout to keep request safely in UNCLAIMED.
     """
     stmt = select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == payout_request_id)
     res = await db.execute(stmt)
@@ -228,24 +229,50 @@ async def cancel_unclaimed_payout_request(
             }
         )
 
-    # Find item
+    # Find associated payout item
     stmt = select(PayoutItemModel).where(PayoutItemModel.payout_request_id == payout_request_id)
     item_res = await db.execute(stmt)
     item = item_res.scalars().first()
 
+    if not item or not item.payout_item_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "PAYPAL_ITEM_NOT_FOUND",
+                "message": f"Cannot cancel payout request {payout_request_id}: missing associated PayPal payout item ID."
+            }
+        )
+
+    import httpx
     # Call PayPal first to cancel unclaimed item
-    if item and item.payout_item_id:
-        try:
-            await paypal_client.cancel_unclaimed_item(item.payout_item_id)
-            item.transaction_status = "CANCELED"
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "PAYPAL_CANCEL_REFUSED",
-                    "message": f"PayPal rejected cancellation of item {item.payout_item_id}: {str(exc)}"
-                }
-            )
+    try:
+        await paypal_client.cancel_unclaimed_item(item.payout_item_id)
+        item.transaction_status = "CANCELED"
+    except (httpx.TimeoutException, httpx.RequestError) as net_err:
+        # Ambiguous network timeout: PayPal may have processed cancel; do not treat as refusal, keep UNCLAIMED
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "error": "PAYPAL_CANCEL_TIMEOUT",
+                "message": f"Timeout or network error communicating with PayPal during cancellation: {str(net_err)}. Request remains UNCLAIMED."
+            }
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "PAYPAL_CANCEL_REFUSED",
+                "message": f"PayPal rejected cancellation of item {item.payout_item_id}: {exc.response.text}"
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "PAYPAL_CANCEL_REFUSED",
+                "message": f"PayPal rejected cancellation of item {item.payout_item_id}: {str(exc)}"
+            }
+        )
 
     # Now execute state machine transition locally
     return await transition_payout_request_status(

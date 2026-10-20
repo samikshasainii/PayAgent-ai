@@ -86,16 +86,18 @@ async def submit_task_payout(agent_id: str, api_key: str, task_id: str, amount: 
         })
 
 @mcp_server.tool()
-async def get_payout_status(payout_request_id: str, agent_id: Optional[str] = None, api_key: Optional[str] = None) -> str:
-    """Returns status and audit reasons for a given payout request."""
+async def get_payout_status(payout_request_id: str, agent_id: str, api_key: str) -> str:
+    """Returns status and audit reasons for a given payout request. Requires valid agent credentials."""
+    if not agent_id or not api_key:
+        return json.dumps({"error": "AUTH_INVALID", "message": "agent_id and api_key are required"})
+
+    key_hash = hash_api_key(api_key)
     async with async_session_factory() as db:
-        if agent_id and api_key:
-            key_hash = hash_api_key(api_key)
-            stmt = select(AgentModel).where(AgentModel.agent_id == agent_id, AgentModel.api_key_hash == key_hash)
-            res = await db.execute(stmt)
-            agent = res.scalar_one_or_none()
-            if not agent:
-                return json.dumps({"error": "AUTH_INVALID", "message": "Invalid agent credentials"})
+        stmt = select(AgentModel).where(AgentModel.agent_id == agent_id, AgentModel.api_key_hash == key_hash)
+        res = await db.execute(stmt)
+        agent = res.scalar_one_or_none()
+        if not agent:
+            return json.dumps({"error": "AUTH_INVALID", "message": "Invalid agent credentials"})
 
         stmt = select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == payout_request_id)
         res = await db.execute(stmt)
@@ -103,7 +105,7 @@ async def get_payout_status(payout_request_id: str, agent_id: Optional[str] = No
         if not req:
             return json.dumps({"error": "NOT_FOUND", "message": "Payout request not found"})
 
-        if agent_id and req.agent_id != agent_id:
+        if req.agent_id != agent_id:
             return json.dumps({"error": "AUTH_UNAUTHORIZED", "message": "Not authorized to view this payout request"})
 
         return json.dumps({

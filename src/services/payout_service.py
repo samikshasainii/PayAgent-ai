@@ -59,8 +59,17 @@ async def dispatch_payout(
 
         await db.commit()
     except httpx.HTTPStatusError as exc:
-        if 400 <= exc.response.status_code < 500:
-            # Definite PayPal rejection: route through state machine to release budget & reopen task
+        if exc.response.status_code == 429:
+            # Stated on purpose: PayPal 429 rate limit exceeded after all retry attempts.
+            # PayPal did not process or create the payout batch, so it is safe to mark FAILED,
+            # release the budget reservation, and reopen the task to OPEN.
+            payout_req.decision_reasons = (payout_req.decision_reasons or []) + [
+                f"PAYPAL_RATE_LIMIT_EXCEEDED: PayPal 429 rate limit after retries: {exc.response.text}"
+            ]
+            await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+            await db.commit()
+        elif 400 <= exc.response.status_code < 500:
+            # Definite PayPal rejection (4xx): route through state machine to release budget & reopen task
             payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_ERROR: {exc.response.text}"]
             await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
             await db.commit()
@@ -68,10 +77,18 @@ async def dispatch_payout(
             # 5xx error: transient/ambiguous failure; keep SUBMITTED for reconciliation
             payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {exc.response.text}"]
             await db.commit()
-    except Exception as exc:
-        # Network errors, timeouts: ambiguous failure; keep SUBMITTED with stored IDs for reconciliation
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        # Ambiguous network / timeout errors: keep SUBMITTED with stored IDs for reconciliation
         payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {str(exc)}"]
         await db.commit()
+    except RuntimeError as rerr:
+        # Budget window or state machine consistency failure:
+        # Roll back transaction immediately to prevent committing inconsistent status without budget movement.
+        await db.rollback()
+        raise rerr
+    except Exception as exc:
+        await db.rollback()
+        raise exc
 
     return payout_req
 

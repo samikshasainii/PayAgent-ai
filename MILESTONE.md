@@ -9,7 +9,14 @@
 - [x] 2. Idempotency Key Handling & Error Paths: Saved-ID pattern implemented (`sender_batch_id = f"payagent_{payout_request_id.hex}"`, `paypal_request_id = payout_request_id`). Transient network/timeout errors preserve IDs and keep requests `SUBMITTED` for reconciliation. Definite 4xx rejections transition to `FAILED` and release reservations.
 - [x] 3. PayPal Client Stub / Live Endpoint Adapter: Support OAuth2 token acquisition using dynamic `expires_in` TTL refresh with 60s buffer, concurrency lock (`asyncio.Lock`), and strict removal of hardcoded TTL fallbacks in live path.
 - [x] 4. Streamable HTTP MCP Endpoint: Verified against pinned `mcp==2.3.0` specification. Session manager runs within FastAPI lifespan. Routes mounted directly at `/mcp` and `/mcp/` without redirection or double-path issues. Verified with `initialize` and `tools/list` tests over HTTP.
-- [x] 5. State Machine & Guardian Test Suite: Comprehensive test suite (11/11 tests, 100% green) running against isolated test database (`data/test_payagent.db`). Validates:
+- [x] 5. State Machine & Guardian Test Suite: Comprehensive test suite (17/17 tests, 100% green) running against isolated test database (`data/test_payagent.db`). Validates:
+  - **Credentials Enforcement (Item a)**: MCP `get_payout_status` strictly requires `agent_id` and `api_key`, rejecting missing or unauthenticated requests with `AUTH_INVALID` and unauthorized access with `AUTH_UNAUTHORIZED`.
+  - **Cancellation Safeguards (Item b)**: `cancel_unclaimed_payout_request` returns HTTP 409 (`PAYPAL_ITEM_NOT_FOUND`) if `payout_item_id` is missing; returns HTTP 504 (`PAYPAL_CANCEL_TIMEOUT`) on network timeouts to keep the request safely in `UNCLAIMED`.
+  - **Replay Protection Scope (Item c)**: Row 7 artifact query in `guardian.py` includes `ONHOLD` and `BLOCKED` states alongside active/completed states, preventing deliverable reuse across tasks.
+  - **Explicit 429 Rate-Limit Handling (Item d)**: PayPal HTTP 429 after retries explicitly transitions to `FAILED` with `PAYPAL_RATE_LIMIT_EXCEEDED`, releasing budget reservations and reopening tasks safely.
+  - **Transaction Rollback on Budget Inconsistency (Item e)**: State transitions and budget updates in `dispatch_payout` execute with immediate `db.rollback()` on inconsistency/RuntimeError to avoid recording `PAID` without budget movement.
+  - **MCP Server Hardening (Item f)**: Public `mcp_server.session_manager` property used instead of private internals; DNS rebinding protection enabled (`enable_dns_rebinding_protection=True`) with allowlist.
+  - **Deprecation Clear (Item g)**: Removed deprecated `event_loop` fixture override in `tests/conftest.py` for pytest-asyncio 0.24+ clean execution.
   - Artifact replay bug fixed (permits corrected resubmissions after Gate 1 rejections without burning artifact hash).
   - Explicit `ALLOWED_TRANSITIONS` guard table enforcing HTTP 409 on invalid transitions.
   - `PAID -> RETURNED` deducts funds from `spent` (not `reserved`) and returns task to `OPEN`.

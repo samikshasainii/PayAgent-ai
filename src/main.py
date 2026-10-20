@@ -44,12 +44,15 @@ async def lifespan(app: FastAPI):
     # Initialize DB tables on startup
     await init_db()
 
-    # Run Streamable HTTP MCP session manager during app lifecycle
-    mgr = mcp_server._lowlevel_server._session_manager
-    if getattr(mgr, "_has_started", False):
-        mcp_sec_inner = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-        mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec_inner)
-        mgr = mcp_server._lowlevel_server._session_manager
+    # Run Streamable HTTP MCP session manager using public property
+    try:
+        mgr = mcp_server.session_manager
+        if getattr(mgr, "_has_started", False):
+            mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
+            mgr = mcp_server.session_manager
+    except RuntimeError:
+        mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
+        mgr = mcp_server.session_manager
 
     async with mgr.run():
         yield
@@ -72,8 +75,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register MCP Server Streamable HTTP Routes directly
-mcp_sec = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+# Register MCP Server Streamable HTTP Routes with DNS rebinding protection enabled
+mcp_sec = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[
+        "127.0.0.1:*",
+        "localhost:*",
+        "[::1]:*",
+        "test",
+        "test:*",
+        "0.0.0.0:*",
+        "*.onrender.com",
+        f"{settings.APP_HOST}:*"
+    ],
+    allowed_origins=[
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+        "http://test",
+        "http://0.0.0.0:*",
+        "https://*.onrender.com"
+    ]
+)
 mcp_http_app = mcp_server.streamable_http_app(streamable_http_path="/mcp", transport_security=mcp_sec)
 for route in mcp_http_app.routes:
     app.routes.append(route)

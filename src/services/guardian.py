@@ -109,6 +109,8 @@ async def evaluate_gate1(
                 PayoutRequestStatus.SUBMITTED,
                 PayoutRequestStatus.PAID,
                 PayoutRequestStatus.UNCLAIMED,
+                PayoutRequestStatus.ONHOLD,
+                PayoutRequestStatus.BLOCKED,
             ])
         )
         .limit(1)

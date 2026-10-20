@@ -14,11 +14,6 @@ from src.database import engine, Base, async_session_factory
 from src.config import settings
 from src.services.paypal_client import paypal_client
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 @pytest.fixture(autouse=True)
 async def isolated_test_db():

@@ -330,6 +330,12 @@ async def test_budget_reservation_and_releases():
             created_at=utc_now()
         )
         db.add(req)
+        item = PayoutItemModel(
+            payout_item_id=f"item-budget-{int(time.time()*1000)}",
+            payout_request_id=str(req_uuid),
+            transaction_status="UNCLAIMED"
+        )
+        db.add(item)
         await db.commit()
 
         # Execute cancellation on UNCLAIMED
@@ -484,7 +490,11 @@ async def test_mcp_guardian_tools_and_http_transport():
     payout_req_id = submit_res["payout_request_id"]
 
     # 4. Test get_payout_status tool
-    status_json = await get_payout_status(payout_request_id=payout_req_id)
+    status_json = await get_payout_status(
+        payout_request_id=payout_req_id,
+        agent_id=agent_id,
+        api_key=raw_key
+    )
     status_res = json.loads(status_json)
     assert status_res["status"] == "PAID"
     assert status_res["amount"] == "25.00"
@@ -820,4 +830,448 @@ async def test_ambiguous_payout_stays_submitted():
             assert window.reserved == Decimal("30.00")
         finally:
             paypal_client.create_single_payout = orig_fn
+
+
+# --- Test 12: MCP get_payout_status Credentials & Authorization Enforcement ---
+@pytest.mark.asyncio
+async def test_mcp_get_payout_status_credentials_enforcement():
+    async with async_session_factory() as db:
+        agent_id_1 = f"agent-mcp-auth1-{int(time.time() * 1000)}"
+        key_1 = "valid-key-1"
+        agent1 = AgentModel(
+            agent_id=agent_id_1,
+            name="Auth Agent 1",
+            api_key_hash=hash_api_key(key_1),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent1)
+
+        agent_id_2 = f"agent-mcp-auth2-{int(time.time() * 1000)}"
+        key_2 = "valid-key-2"
+        agent2 = AgentModel(
+            agent_id=agent_id_2,
+            name="Auth Agent 2",
+            api_key_hash=hash_api_key(key_2),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent2)
+
+        task = TaskModel(
+            task_id=f"t-mcp-auth-{int(time.time() * 1000)}",
+            title="MCP Auth Task",
+            acceptance_criteria="Auth test",
+            budget=Decimal("15.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id_1,
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=1),
+            status=TaskStatus.OPEN
+        )
+        db.add(task)
+
+        req_uuid = str(uuid.uuid4())
+        req = PayoutRequestModel(
+            payout_request_id=req_uuid,
+            task_id=task.task_id,
+            agent_id=agent_id_1,
+            amount=Decimal("15.00"),
+            deliverables={"doc": "http://doc"},
+            artifact_sha256="dummy_sha256_mcp_auth",
+            status=PayoutRequestStatus.PAID,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"payagent_{uuid.UUID(req_uuid).hex}",
+            paypal_request_id=req_uuid,
+            created_at=utc_now()
+        )
+        db.add(req)
+        await db.commit()
+
+    # 1. No credentials provided
+    res_no_creds = json.loads(await get_payout_status(payout_request_id=req_uuid, agent_id="", api_key=""))
+    assert res_no_creds.get("error") == "AUTH_INVALID"
+
+    # 2. Invalid API key provided
+    res_bad_key = json.loads(await get_payout_status(payout_request_id=req_uuid, agent_id=agent_id_1, api_key="wrong-key"))
+    assert res_bad_key.get("error") == "AUTH_INVALID"
+
+    # 3. Valid credentials for different agent (not the owner)
+    res_other = json.loads(await get_payout_status(payout_request_id=req_uuid, agent_id=agent_id_2, api_key=key_2))
+    assert res_other.get("error") == "AUTH_UNAUTHORIZED"
+
+    # 4. Valid credentials for owner agent
+    res_valid = json.loads(await get_payout_status(payout_request_id=req_uuid, agent_id=agent_id_1, api_key=key_1))
+    assert res_valid["status"] == "PAID"
+    assert res_valid["amount"] == "15.00"
+    assert res_valid["agent_id"] == agent_id_1
+
+
+# --- Test 13: Cancel UNCLAIMED Request Missing Item ID Returns 409 ---
+@pytest.mark.asyncio
+async def test_cancel_missing_item_id_returns_409():
+    from fastapi import HTTPException
+    async with async_session_factory() as db:
+        agent_id = f"agent-no-item-{int(time.time() * 1000)}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="No Item Agent",
+            api_key_hash=hash_api_key("test"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent)
+
+        task = TaskModel(
+            task_id=f"t-no-item-{int(time.time() * 1000)}",
+            title="No Item Task",
+            acceptance_criteria="Check cancel with missing item",
+            budget=Decimal("20.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        db.add(task)
+
+        req_uuid = str(uuid.uuid4())
+        req = PayoutRequestModel(
+            payout_request_id=req_uuid,
+            task_id=task.task_id,
+            agent_id=agent_id,
+            amount=Decimal("20.00"),
+            deliverables={"doc": "http://doc"},
+            artifact_sha256="dummy_sha256_no_item",
+            status=PayoutRequestStatus.UNCLAIMED,
+            decision_reasons=[],
+            sender_batch_id=f"payagent_{uuid.UUID(req_uuid).hex}",
+            paypal_request_id=req_uuid,
+            created_at=utc_now()
+        )
+        db.add(req)
+        # Note: No PayoutItemModel is added to the database!
+        await db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_unclaimed_payout_request(db, req_uuid)
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail["error"] == "PAYPAL_ITEM_NOT_FOUND"
+
+
+# --- Test 14: Cancel Timeout Returns 504 and Keeps UNCLAIMED ---
+@pytest.mark.asyncio
+async def test_cancel_timeout_returns_504_and_keeps_unclaimed():
+    from fastapi import HTTPException
+    async with async_session_factory() as db:
+        agent_id = f"agent-timeout-{int(time.time() * 1000)}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="Timeout Agent",
+            api_key_hash=hash_api_key("test"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent)
+
+        task = TaskModel(
+            task_id=f"t-timeout-{int(time.time() * 1000)}",
+            title="Timeout Task",
+            acceptance_criteria="Check cancel timeout",
+            budget=Decimal("20.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        db.add(task)
+
+        req_uuid = str(uuid.uuid4())
+        req = PayoutRequestModel(
+            payout_request_id=req_uuid,
+            task_id=task.task_id,
+            agent_id=agent_id,
+            amount=Decimal("20.00"),
+            deliverables={"doc": "http://doc"},
+            artifact_sha256="dummy_sha256_cancel_timeout",
+            status=PayoutRequestStatus.UNCLAIMED,
+            decision_reasons=[],
+            sender_batch_id=f"payagent_{uuid.UUID(req_uuid).hex}",
+            paypal_request_id=req_uuid,
+            created_at=utc_now()
+        )
+        db.add(req)
+
+        item = PayoutItemModel(
+            payout_item_id=f"item-timeout-{int(time.time() * 1000)}",
+            payout_request_id=req_uuid,
+            transaction_status="UNCLAIMED"
+        )
+        db.add(item)
+        await db.commit()
+
+        orig_cancel = paypal_client.cancel_unclaimed_item
+        async def mock_cancel_timeout(payout_item_id: str):
+            raise httpx.ReadTimeout("Timeout waiting for PayPal to cancel item")
+        paypal_client.cancel_unclaimed_item = mock_cancel_timeout
+
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await cancel_unclaimed_payout_request(db, req_uuid)
+            assert exc_info.value.status_code == 504
+            assert exc_info.value.detail["error"] == "PAYPAL_CANCEL_TIMEOUT"
+
+            # Verify request status remained UNCLAIMED in database
+            await db.refresh(req)
+            assert req.status == PayoutRequestStatus.UNCLAIMED
+        finally:
+            paypal_client.cancel_unclaimed_item = orig_cancel
+
+
+# --- Test 15: Replay Protection Blocks Deliverables in ONHOLD and BLOCKED ---
+@pytest.mark.asyncio
+async def test_replay_protection_includes_onhold_and_blocked():
+    from src.services.guardian import evaluate_gate1
+
+    deliverables = {"shared_report": "https://example.com/shared_report.pdf"}
+    artifact_hash = compute_artifact_sha256(deliverables)
+
+    async with async_session_factory() as db:
+        agent_id = f"agent-replay-hold-{int(time.time() * 1000)}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="Replay Test Agent",
+            api_key_hash=hash_api_key("test"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        db.add(agent)
+
+        for status_to_test in (PayoutRequestStatus.ONHOLD, PayoutRequestStatus.BLOCKED):
+            task_prior = TaskModel(
+                task_id=f"t-prior-{status_to_test.value.lower()}-{int(time.time() * 1000)}",
+                title=f"Prior Task {status_to_test.value}",
+                acceptance_criteria="Prior",
+                budget=Decimal("50.00"),
+                currency="USD",
+                allowed_recipient="contractor@sandbox.paypal.com",
+                assigned_agent_id=agent_id,
+                required_deliverables=["shared_report"],
+                deadline=utc_now() + timedelta(days=1),
+                status=TaskStatus.PAYOUT_IN_PROGRESS
+            )
+            db.add(task_prior)
+
+            req_prior_uuid = str(uuid.uuid4())
+            req_prior = PayoutRequestModel(
+                payout_request_id=req_prior_uuid,
+                task_id=task_prior.task_id,
+                agent_id=agent_id,
+                amount=Decimal("50.00"),
+                deliverables=deliverables,
+                artifact_sha256=artifact_hash,
+                status=status_to_test,
+                decision_reasons=[],
+                sender_batch_id=f"payagent_{uuid.UUID(req_prior_uuid).hex}",
+                paypal_request_id=req_prior_uuid,
+                created_at=utc_now()
+            )
+            db.add(req_prior)
+            await db.commit()
+
+            # Second task attempts to use the exact same deliverables
+            task_second = TaskModel(
+                task_id=f"t-sec-{status_to_test.value.lower()}-{int(time.time() * 1000)}",
+                title=f"Second Task {status_to_test.value}",
+                acceptance_criteria="Second",
+                budget=Decimal("50.00"),
+                currency="USD",
+                allowed_recipient="contractor@sandbox.paypal.com",
+                assigned_agent_id=agent_id,
+                required_deliverables=["shared_report"],
+                deadline=utc_now() + timedelta(days=1),
+                status=TaskStatus.OPEN
+            )
+            db.add(task_second)
+            await db.commit()
+
+            passed, code, reason, _, _ = await evaluate_gate1(
+                db=db,
+                agent=agent,
+                payload=PayoutRequestIn(
+                    task_id=task_second.task_id,
+                    amount=Decimal("50.00"),
+                    deliverables=deliverables
+                ),
+                artifact_sha256=artifact_hash
+            )
+            assert not passed
+            assert code == 409
+            assert reason == DecisionReason.ARTIFACT_REPLAY.value
+
+            # Clean up prior request so next iteration tests cleanly
+            await db.delete(req_prior)
+            await db.delete(task_prior)
+            await db.delete(task_second)
+            await db.commit()
+
+
+# --- Test 16: PayPal Rate-Limit 429 After Retries Marks Request FAILED & Reopens Task ---
+@pytest.mark.asyncio
+async def test_paypal_rate_limit_429_marks_failed_and_reopens_task():
+    from src.services.payout_service import dispatch_payout
+
+    async with async_session_factory() as db:
+        agent_id = f"agent-rl-{int(time.time() * 1000)}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="Rate Limit Agent",
+            api_key_hash=hash_api_key("test"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent)
+
+        hour_window = get_current_hour_window()
+        window = BudgetWindowModel(
+            agent_id=agent_id,
+            window_start=hour_window,
+            reserved=Decimal("35.00"),
+            spent=Decimal("0.00")
+        )
+        db.add(window)
+
+        task = TaskModel(
+            task_id=f"t-rl-{int(time.time() * 1000)}",
+            title="Rate Limit Task",
+            acceptance_criteria="Verify 429 response handling",
+            budget=Decimal("35.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        db.add(task)
+
+        req_uuid = str(uuid.uuid4())
+        req = PayoutRequestModel(
+            payout_request_id=req_uuid,
+            task_id=task.task_id,
+            agent_id=agent_id,
+            amount=Decimal("35.00"),
+            deliverables={"doc": "http://doc"},
+            artifact_sha256="dummy_sha256_rl_429",
+            status=PayoutRequestStatus.APPROVED,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"payagent_{uuid.UUID(req_uuid).hex}",
+            paypal_request_id=req_uuid,
+            window_start=hour_window,
+            created_at=utc_now()
+        )
+        db.add(req)
+        await db.commit()
+
+        # Simulate PayPal 429 after retries
+        orig_fn = paypal_client.create_single_payout
+        async def mock_429(*args, **kwargs):
+            mock_resp = httpx.Response(
+                status_code=429,
+                content=b'{"name":"RATE_LIMIT_REACHED","message":"Too many requests"}',
+                request=httpx.Request("POST", "https://api-m.sandbox.paypal.com/v1/payments/payouts")
+            )
+            raise httpx.HTTPStatusError("429 Too Many Requests", request=mock_resp.request, response=mock_resp)
+        paypal_client.create_single_payout = mock_429
+
+        try:
+            res_req = await dispatch_payout(db, req, task)
+            # Must mark request FAILED
+            assert res_req.status == PayoutRequestStatus.FAILED
+            assert any("PAYPAL_RATE_LIMIT_EXCEEDED" in r for r in res_req.decision_reasons)
+
+            # Budget reservation must be released back to 0.00
+            await db.refresh(window)
+            assert window.reserved == Decimal("0.00")
+
+            # Task status must be reopened to OPEN
+            await db.refresh(task)
+            assert task.status == TaskStatus.OPEN
+        finally:
+            paypal_client.create_single_payout = orig_fn
+
+
+# --- Test 17: Database Rollback on Budget Update Inconsistency During Dispatch ---
+@pytest.mark.asyncio
+async def test_dispatch_payout_rolls_back_on_budget_inconsistency():
+    from src.services.payout_service import dispatch_payout
+    import src.services.state_machine as sm
+
+    async with async_session_factory() as db:
+        agent_id = f"agent-inconsist-{int(time.time() * 1000)}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="Inconsistent Agent",
+            api_key_hash=hash_api_key("test"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("100.00")
+        )
+        db.add(agent)
+
+        task = TaskModel(
+            task_id=f"t-inconsist-{int(time.time() * 1000)}",
+            title="Inconsistent Task",
+            acceptance_criteria="Verify DB rollback on budget error",
+            budget=Decimal("45.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        db.add(task)
+
+        req_uuid = str(uuid.uuid4())
+        req = PayoutRequestModel(
+            payout_request_id=req_uuid,
+            task_id=task.task_id,
+            agent_id=agent_id,
+            amount=Decimal("45.00"),
+            deliverables={"doc": "http://doc"},
+            artifact_sha256="dummy_sha256_inconsist",
+            status=PayoutRequestStatus.SUBMITTED,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"payagent_{uuid.UUID(req_uuid).hex}",
+            paypal_request_id=req_uuid,
+            created_at=utc_now()
+        )
+        db.add(req)
+        await db.commit()
+
+        # Simulate convert_reservation_to_spent failing due to inconsistency
+        orig_convert = sm.convert_reservation_to_spent
+        async def mock_fail_budget(session, aid, amt, wstart):
+            raise RuntimeError("Database budget window missing or invalid")
+        sm.convert_reservation_to_spent = mock_fail_budget
+
+        try:
+            with pytest.raises(RuntimeError, match="Database budget window missing"):
+                await dispatch_payout(db, req, task)
+
+            # In a new session, verify database was rolled back and request is NOT marked PAID
+            async with async_session_factory() as verify_db:
+                from sqlalchemy import select
+                stmt = select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == req_uuid)
+                res = await verify_db.execute(stmt)
+                persisted_req = res.scalar_one()
+                # Status must NOT be PAID in the database
+                assert persisted_req.status != PayoutRequestStatus.PAID
+        finally:
+            sm.convert_reservation_to_spent = orig_convert
+
 
