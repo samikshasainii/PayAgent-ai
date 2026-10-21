@@ -123,8 +123,10 @@ See **M3.0 Pre-flight** (must be done first) and **M3.6** (before the first Rend
 - **Goal**: Live operator console, MCP client verified end-to-end, Postman collection, hosted Render instance with verified webhooks. End of M3: record the rough-cut video.
 
 ### M3.0 Pre-flight (resolve before starting M3.1-M3.5)
-- [x] PF1 Webhook processing order (`src/services/webhooks.py`): the event transition and verified record are committed in the same transaction. If the transition raises (e.g. budget consistency failure), rollback undoes both, ensuring PayPal's retry is not dropped as a duplicate. Regression test verified in `tests/test_preflight_webhooks.py`.
-- [x] PF2 Demo agent, happy path (`scripts/demo_agent.py`): keeps polling through `SUBMITTED` until terminal status (cap 60s), printing the final `PAID` status and PayPal batch ID.
+- [x] B1 Status mapping parity & poller non-final sweep: created src/services/status_mapping.py shared by poller and webhooks. reconcile_all_pending sweeps SUBMITTED, UNCLAIMED, ONHOLD, and BLOCKED. Concurrency loser returns already_applied. Verified by Counter-Tests 4 & 5.
+- [x] B2 Pre-recording warm-up call documented: added recommended warm-up command to Step 5 of README.md.
+- [x] PF1 Webhook transaction isolation & counter-tests (src/services/webhooks.py): state transition and verified record committed in same transaction. Concurrency loser detects cas_won == False and rolls back. Verified by Counter-Tests 1-3 in tests/test_preflight_webhooks.py.
+- [x] PF2 Demo agent error handling & polling (scripts/demo_agent.py): wait_for_gate2 timeout prints explicit timeout message. Polling non-200, 60s timeout cap, and FAILED states report failure and exit non-zero (sys.exit(1)). Verified by Counter-Test 6 (tests/test_demo_agent.py).
 - [x] PF3 Demo agent, escalate scenario (`scripts/demo_agent.py`): deliverables made substantive (threat model & concurrency analysis, stress benchmark logs); live Gemini verified `passed=True, confidence=0.95`, so only `ABOVE_AUTO_LIMIT` fires (0 circuit-breaker incidents). Documented `python -m src.seed --reset` before every take in `README.md` demo steps.
 - [x] PF4 Latency risk: documented pre-recording warm-up call in demo instructions; verified live Gemini call completes in 18s; 45s timeout maintained in `ARCHITECTURE.md` row 9.
 

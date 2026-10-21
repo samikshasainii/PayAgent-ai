@@ -52,12 +52,15 @@ ALLOWED_TRANSITIONS: Dict[PayoutRequestStatus, Set[PayoutRequestStatus]] = {
         PayoutRequestStatus.FAILED,
         PayoutRequestStatus.RETURNED,
         PayoutRequestStatus.BLOCKED,
+        PayoutRequestStatus.CANCELED,
     },
     PayoutRequestStatus.BLOCKED: {
         PayoutRequestStatus.PAID,
         PayoutRequestStatus.UNCLAIMED,
         PayoutRequestStatus.FAILED,
         PayoutRequestStatus.RETURNED,
+        PayoutRequestStatus.ONHOLD,
+        PayoutRequestStatus.CANCELED,
     },
     PayoutRequestStatus.PAID: {
         # e.g. Subsequent PayPal ACH reversal / 30-day return
@@ -151,6 +154,7 @@ async def transition_payout_request_status(
     """
     old_status = expected_old_status or request.status
     if old_status == new_status:
+        request._cas_won = False
         return request
 
     allowed = ALLOWED_TRANSITIONS.get(old_status, set())
@@ -180,7 +184,10 @@ async def transition_payout_request_status(
     if cas_res.rowcount == 0:
         # Race lost: another writer already updated the status in DB
         await db.refresh(request)
+        request._cas_won = False
         return request
+
+    request._cas_won = True
 
     # Update in-memory object attributes
     request.status = new_status
@@ -217,7 +224,7 @@ async def transition_payout_request_status(
             task.status = TaskStatus.OPEN
         await release_budget_reservation(db, request.agent_id, request.amount, window_bucket)
 
-    elif new_status == PayoutRequestStatus.SUBMITTED:
+    elif new_status in (PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.BLOCKED, PayoutRequestStatus.ONHOLD, PayoutRequestStatus.UNCLAIMED):
         if task:
             task.status = TaskStatus.PAYOUT_IN_PROGRESS
 

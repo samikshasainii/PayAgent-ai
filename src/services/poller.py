@@ -13,7 +13,8 @@ from src.models.payout import PayoutRequestModel, PayoutItemModel
 from src.models.task import TaskModel
 from src.schemas.enums import PayoutRequestStatus
 from src.services.paypal_client import paypal_client
-from src.services.state_machine import transition_payout_request_status
+from src.services.state_machine import transition_payout_request_status, ALLOWED_TRANSITIONS
+from src.services.status_mapping import PAYPAL_ITEM_TO_REQUEST_STATUS
 
 logger = logging.getLogger("payagent.poller")
 
@@ -81,28 +82,13 @@ async def apply_batch_reconciliation(
 
     transitioned = False
 
-    # Map raw PayPal item status to PayoutRequestStatus
-    if raw_item_status == "SUCCESS":
-        if req.status != PayoutRequestStatus.PAID:
-            await transition_payout_request_status(db, req, PayoutRequestStatus.PAID)
-            transitioned = True
-    elif raw_item_status in ("FAILED", "BLOCKED", "DENIED"):
-        if req.status != PayoutRequestStatus.FAILED:
-            await transition_payout_request_status(db, req, PayoutRequestStatus.FAILED)
-            transitioned = True
-    elif raw_item_status == "UNCLAIMED":
-        if req.status == PayoutRequestStatus.SUBMITTED:
-            await transition_payout_request_status(db, req, PayoutRequestStatus.UNCLAIMED)
-            transitioned = True
-    elif raw_item_status == "CANCELED":
-        # Handles cancel timeouts (e.g. after a 504 where PayPal cancelled but local DB is UNCLAIMED)
-        if req.status != PayoutRequestStatus.CANCELED:
-            await transition_payout_request_status(db, req, PayoutRequestStatus.CANCELED)
-            transitioned = True
-    elif raw_item_status == "RETURNED":
-        # Handles automatic 30-day PayPal returns of unclaimed funds
-        if req.status != PayoutRequestStatus.RETURNED:
-            await transition_payout_request_status(db, req, PayoutRequestStatus.RETURNED)
+    # Map raw PayPal item status to PayoutRequestStatus via shared status mapping table
+    raw_status = (raw_item_status or "").upper()
+    target_status = PAYPAL_ITEM_TO_REQUEST_STATUS.get(raw_status)
+    if target_status and req.status != target_status:
+        allowed = ALLOWED_TRANSITIONS.get(req.status, set())
+        if target_status in allowed:
+            await transition_payout_request_status(db, req, target_status)
             transitioned = True
 
     if transitioned:
@@ -131,7 +117,8 @@ async def reconcile_request(
 
 async def reconcile_all_pending(db: AsyncSession) -> int:
     """
-    Finds all requests in SUBMITTED or UNCLAIMED status and reconciles against PayPal.
+    Finds all requests in non-final pending statuses (SUBMITTED, UNCLAIMED, ONHOLD, BLOCKED)
+    and reconciles against PayPal.
     Milestone 2 optimization: Fetches batch data from PayPal outside any DB transaction,
     then opens a short savepoint write transaction to apply status and item updates.
     """
@@ -139,10 +126,12 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
     stmt = (
         select(PayoutRequestModel)
         .where(
-            or_(
-                PayoutRequestModel.status == PayoutRequestStatus.SUBMITTED,
-                PayoutRequestModel.status == PayoutRequestStatus.UNCLAIMED
-            )
+            PayoutRequestModel.status.in_([
+                PayoutRequestStatus.SUBMITTED,
+                PayoutRequestStatus.UNCLAIMED,
+                PayoutRequestStatus.ONHOLD,
+                PayoutRequestStatus.BLOCKED,
+            ])
         )
     )
     result = await db.execute(stmt)

@@ -8,20 +8,11 @@ from src.models.payout import PayoutRequestModel, PayoutItemModel
 from src.schemas.enums import PayoutRequestStatus
 from src.services.paypal_client import paypal_client
 from src.services.state_machine import transition_payout_request_status, ALLOWED_TRANSITIONS
+from src.services.status_mapping import PAYPAL_EVENT_TO_REQUEST_STATUS, PAYPAL_ITEM_TO_REQUEST_STATUS
 
 logger = logging.getLogger("payagent.webhooks")
 
-EVENT_TO_STATUS = {
-    "PAYMENT.PAYOUTS-ITEM.SUCCEEDED": PayoutRequestStatus.PAID,
-    "PAYMENT.PAYOUTS-ITEM.FAILED": PayoutRequestStatus.FAILED,
-    "PAYMENT.PAYOUTS-ITEM.DENIED": PayoutRequestStatus.FAILED,
-    "PAYMENT.PAYOUTS-ITEM.BLOCKED": PayoutRequestStatus.BLOCKED,
-    "PAYMENT.PAYOUTS-ITEM.HELD": PayoutRequestStatus.ONHOLD,
-    "PAYMENT.PAYOUTS-ITEM.UNCLAIMED": PayoutRequestStatus.UNCLAIMED,
-    "PAYMENT.PAYOUTS-ITEM.CANCELED": PayoutRequestStatus.CANCELED,
-    "PAYMENT.PAYOUTS-ITEM.RETURNED": PayoutRequestStatus.RETURNED,
-    "PAYMENT.PAYOUTSBATCH.DENIED": PayoutRequestStatus.FAILED,
-}
+EVENT_TO_STATUS = PAYPAL_EVENT_TO_REQUEST_STATUS
 
 async def process_webhook_event(
     db: AsyncSession,
@@ -101,6 +92,11 @@ async def process_webhook_event(
     # 3. Monotonic state transition
     target_status = EVENT_TO_STATUS.get(event_type)
     if not target_status:
+        raw_status = resource.get("transaction_status")
+        if raw_status:
+            target_status = PAYPAL_ITEM_TO_REQUEST_STATUS.get(raw_status.upper())
+
+    if not target_status:
         # Informational event (e.g. PAYMENT.PAYOUTSBATCH.PROCESSING, SUCCESS)
         await _save_verified_record()
         await db.commit()
@@ -136,6 +132,11 @@ async def process_webhook_event(
         await db.commit()
         return {"status": "no_matching_request", "event_id": event_id}
 
+    # If the request is already in the target status, this delivery has already been applied
+    if req.status == target_status:
+        logger.info(f"Webhook event {event_id} already applied to {req.payout_request_id} ({target_status.value})")
+        return {"status": "already_applied", "event_id": event_id}
+
     # Check if transition is valid/monotonic
     allowed = ALLOWED_TRANSITIONS.get(req.status, set())
     if target_status not in allowed:
@@ -165,13 +166,20 @@ async def process_webhook_event(
 
     # PF1 FIX: State transition and verified webhook record are committed in the same transaction.
     # If the state transition raises, rollback undoes both, allowing PayPal's retry to be processed.
+    # Concurrency loser (CAS rowcount == 0) safely returns 'already_applied' without duplicate commits.
     try:
         await transition_payout_request_status(db, req, target_status, decided_by="paypal_webhook")
+        cas_won = getattr(req, "_cas_won", True)
+        if not cas_won:
+            await db.rollback()
+            return {"status": "already_applied", "event_id": event_id}
         await _save_verified_record()
         await db.commit()
         await db.refresh(req)
     except Exception as exc:
         await db.rollback()
+        if "UNIQUE constraint failed" in str(exc) or "IntegrityError" in type(exc).__name__:
+            return {"status": "already_applied", "event_id": event_id}
         logger.error(f"Failed to process state transition for webhook {event_id}: {exc}")
         raise
 
