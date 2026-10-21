@@ -122,7 +122,8 @@ See **M3.0 Pre-flight** (must be done first) and **M3.6** (before the first Rend
 ## Active Milestone: M3 (Console, MCP & Sponsor Artifacts) — Wed Oct 28 – Fri Oct 30
 - **Goal**: Live operator console, MCP client verified end-to-end, Postman collection, hosted Render instance with verified webhooks. End of M3: record the rough-cut video.
 
-### M3.0 Pre-flight (resolve before starting M3.1-M3.5)
+### M3.0 Pre-flight — APPROVED by reviewer 2026-10-22 (commit `1d07cab`)
+Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed counter-tests 1, 3, 4 and 5 each fail when their fix is reverted; status mapping checked against PayPal's payouts-batch v1 schema (`ONHOLD` = under review, `REFUNDED` = funds back to sender, `REVERSED` = web uploads only, `BLOCKED` = undocumented finality).
 - [x] B1 Status mapping parity & poller non-final sweep: created src/services/status_mapping.py shared by poller and webhooks. reconcile_all_pending sweeps SUBMITTED, UNCLAIMED, ONHOLD, and BLOCKED. Concurrency loser returns already_applied. Verified by Counter-Tests 4 & 5.
 - [x] B2 Pre-recording warm-up call documented: added recommended warm-up command to Step 5 of README.md.
 - [x] PF1 Webhook transaction isolation & counter-tests (src/services/webhooks.py): state transition and verified record committed in same transaction. Concurrency loser detects cas_won == False and rolls back. Verified by Counter-Tests 1-3 in tests/test_preflight_webhooks.py.
@@ -130,8 +131,19 @@ See **M3.0 Pre-flight** (must be done first) and **M3.6** (before the first Rend
 - [x] PF3 Demo agent, escalate scenario (`scripts/demo_agent.py`): deliverables made substantive (threat model & concurrency analysis, stress benchmark logs); live Gemini verified `passed=True, confidence=0.95`, so only `ABOVE_AUTO_LIMIT` fires (0 circuit-breaker incidents). Documented `python -m src.seed --reset` before every take in `README.md` demo steps.
 - [x] PF4 Latency risk: documented pre-recording warm-up call in demo instructions; verified live Gemini call completes in 18s; 45s timeout maintained in `ARCHITECTURE.md` row 9.
 
+### M3.0b Entry Fixes (resolve before M3.1; found in the M3.0 review)
+- [ ] E1 README warm-up block (`README.md` Step 5): the fence contains a literal backspace control character (a PowerShell escape turned ```` ```bash ```` into `` `<BS>ash ``), so it renders broken on GitHub. Use plain triple-backtick fences; check with `grep -nP "\x08" README.md` (must return nothing).
+- [ ] E2 Over-broad `IntegrityError` handling (`src/services/webhooks.py`): every `IntegrityError` is reported as `already_applied` (200), so a collision on another table (e.g. `payout_items`) drops the event while nothing was applied and PayPal never retries. Treat only a `webhook_events` primary-key collision as `already_applied`; re-raise anything else (500 -> PayPal retries). Test: force a `payout_items` collision and assert 500 with no state change.
+- [ ] E3 `BLOCKED` has no exit (`src/services/state_machine.py`, `src/main.py`, `src/services/poller.py`): PayPal does not document whether `BLOCKED` is final. Holding the reservation is the right default, but nothing ever releases it and operator cancel only accepts `UNCLAIMED`, so a `BLOCKED` request holds its budget and locks its task forever.
+  - Add an operator action (e.g. `POST /api/v1/payout-requests/{id}/resolve-blocked`, operator token) that moves `BLOCKED` -> `FAILED` (reservation released, task reopened) after the operator checks the PayPal dashboard; 409 in any other state.
+  - Apply the existing UNCLAIMED backoff (hourly after 10 minutes) to `ONHOLD` and `BLOCKED` rows; today they are re-polled every 5 s forever (429 risk).
+  - Tests: resolve releases the hold and reopens the task; 409 on non-`BLOCKED`; backoff skips a `BLOCKED` row older than 10 minutes within the hour.
+- [ ] E4 Code smell: `_cas_won` is a private attribute set on the ORM object. Have `transition_payout_request_status` return whether it won the CAS (e.g. a bool or a small result object) and update callers; behavior unchanged, existing tests stay green.
+- [ ] E5 Postgres test run: all tests have only ever run on SQLite. Run the full suite once against Postgres (a separate test database on the Render/Neon/Supabase instance, or a local Postgres) with `DATABASE_URL=postgresql+asyncpg://...`. The conftest currently hard-codes SQLite, so make the test DB URL overridable (e.g. `TEST_DATABASE_URL`) without changing the default. Record the result; fix any dialect issues (conditional UPDATEs, `IntegrityError` handling, JSON columns, naive datetimes).
+- [ ] E6 Python version parity (`render.yaml`): `PYTHON_VERSION` is pinned to 3.11.9, but every test, rehearsal and clean-venv check has run on Python 3.12. Pin 3.12.4 (matching the verified venv) before the first deploy.
+
 ### Acceptance Criteria
-- [ ] M3.1 SSE stream: `GET /api/v1/events` emits payout-request, task, and agent changes (including `RECEIVED` -> decision); the console switches from 2s polling to SSE, with polling as fallback on disconnect.
+- [ ] M3.1 SSE stream (publish events only after the DB commit succeeds, never before): `GET /api/v1/events` emits payout-request, task, and agent changes (including `RECEIVED` -> decision); the console switches from 2s polling to SSE, with polling as fallback on disconnect.
 - [ ] M3.2 Console:
   - Payout-requests grid with status and reason-code chips, risk badge, and an "in review" state for `RECEIVED`
   - Approve/reject buttons that show the deliverables and LLM reasoning before confirming
@@ -144,14 +156,17 @@ See **M3.0 Pre-flight** (must be done first) and **M3.6** (before the first Rend
   - `PUBLIC_HOST` set and present in the MCP `allowed_hosts`/`allowed_origins` (avoids 421 "Invalid Host header" under mcp 2.3.0 exact matching)
   - Register `https://<PUBLIC_HOST>/api/v1/webhooks/paypal` as the sandbox webhook, then set `PAYPAL_WEBHOOK_ID`
   - Free-tier sleep: warm the instance before recording
-- [ ] M3.6 (gate for M3.5) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
+- [ ] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
+- [ ] M3.7 Final rehearsal on the hosted instance: warm the instance -> `python -m src.seed --reset` -> one warm-up `--scenario happy` -> `python -m src.seed --reset` -> `--scenario all`; operator approves escalate in the console and watches it reach `PAID` over SSE; verify every batch ID directly against PayPal; record the rough cut.
 
 ### Done When
 - A verified real PayPal webhook moves a request on the hosted instance
 - The MCP client completes a payout request end-to-end
 - The Postman collection runs green
-- M3.0 Pre-flight items closed and reviewed
-- 37+ tests green; rough-cut video recorded
+- M3.0 Pre-flight items closed and reviewed (done)
+- M3.0b Entry fixes E1-E6 closed and reviewed
+- Full test suite green on SQLite **and** Postgres
+- 54+ tests green; rough-cut video recorded
 
 ### Known Limitation (accepted, not M3 scope)
 - Two submissions at the same instant can occasionally return a SQLite 500 (WAL snapshot conflict). Fails safe: nothing is paid. Expected not to occur on Postgres (row locks re-check the conditional update), but untested.
