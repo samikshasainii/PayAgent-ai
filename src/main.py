@@ -34,6 +34,7 @@ from src.services.state_machine import (
 from src.services.paypal_client import paypal_client
 from src.services.payout_service import process_payout_submission, dispatch_payout
 from src.services.poller import poller, reconcile_all_pending
+from src.services.gate2_reviewer import sweeper as gate2_sweeper
 from src.services.webhooks import process_webhook_event
 from src.mcp_server.server import mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
@@ -52,12 +53,16 @@ async def lifespan(app: FastAPI):
     # Start reconciliation poller
     poller.start()
 
+    # Start Gate 2 sweeper (resumes reviews orphaned by a restart on its first pass)
+    gate2_sweeper.start()
+
     # Run Streamable HTTP MCP session manager using public property
     mgr = mcp_server.session_manager
     async with mgr.run():
         yield
 
     # Cleanup on shutdown
+    await gate2_sweeper.stop()
     await poller.stop()
     await paypal_client.close()
 
@@ -212,12 +217,16 @@ async def release_agent_quarantine(
 
 # --- Agent Payout Request Endpoints ---
 
-@app.post("/api/v1/payout-requests", response_model=PayoutRequestOut, status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/payout-requests", response_model=PayoutRequestOut, status_code=status.HTTP_202_ACCEPTED)
 async def submit_payout_request(
     request_in: PayoutRequestIn,
     agent: AgentModel = Depends(get_authenticated_agent),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Runs Gate 1 and returns 202 with status RECEIVED. Gate 2 (LLM review) runs in the background;
+    poll GET /api/v1/payout-requests/{id} for the decision.
+    """
     passed, http_code, reason_code, payout_req = await process_payout_submission(
         db=db,
         agent=agent,

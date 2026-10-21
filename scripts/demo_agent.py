@@ -15,6 +15,19 @@ if sys.platform == "win32":
 BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_AGENT_ID = "agent-code-reviewer-01"
 DEFAULT_API_KEY = "pa_demo_agent_key_secret_123"
+REVIEW_STATES = ("RECEIVED", "APPROVED")  # Gate 2 still deciding (or about to dispatch)
+
+async def wait_for_gate2(client: httpx.AsyncClient, headers: dict, payout_request_id: str, timeout_s: float = 120.0) -> dict:
+    """Gate 2 runs asynchronously: poll the request until the Guardian has decided."""
+    print("   ⏳ Gate 1 passed (202 RECEIVED). Gate 2 LLM proof review running; polling status...")
+    t0 = time.time()
+    while True:
+        resp = await client.get(f"/api/v1/payout-requests/{payout_request_id}", headers=headers)
+        data = resp.json()
+        if data.get("status") not in REVIEW_STATES or time.time() - t0 > timeout_s:
+            print(f"   Gate 2 decided in {time.time() - t0:.1f}s")
+            return data
+        await asyncio.sleep(2.0)
 
 async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: str = None):
     if not run_salt:
@@ -46,6 +59,8 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
             )
             print(f"   HTTP Status: {resp.status_code}")
             data = resp.json()
+            if resp.status_code == 202:
+                data = await wait_for_gate2(client, headers, data["payout_request_id"])
             print(f"   Payout Request ID: {data.get('payout_request_id')}")
             print(f"   Status:            {data.get('status')}")
             print(f"   Decision Reasons:  {data.get('decision_reasons')}")
@@ -74,6 +89,8 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
             )
             print(f"   HTTP Status: {resp.status_code}")
             data = resp.json()
+            if resp.status_code == 202:
+                data = await wait_for_gate2(client, headers, data["payout_request_id"])
             print(f"   Payout Request ID: {data.get('payout_request_id')}")
             print(f"   Status:            {data.get('status')}")
             print(f"   Decision Reasons:  {data.get('decision_reasons')}")
@@ -99,6 +116,8 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
             print(f"   Response:    {resp.text}")
             if resp.status_code == 422:
                 print("   ⛔ GATE 1 HARD REJECT: Request blocked deterministically without calling LLM.")
+            elif resp.status_code == 403 and "TASK_NOT_ASSIGNED" in resp.text:
+                print("   ℹ️ Task already has a payout in progress (one task, one payout). Run tamper before escalate, or `python -m src.seed --reset`.")
 
 async def main():
     parser = argparse.ArgumentParser(description="PayAgent Demo Worker Agent")
@@ -111,9 +130,10 @@ async def main():
     salt = args.salt or uuid.uuid4().hex[:6]
 
     if args.scenario == "all":
+        # tamper runs before escalate: escalate leaves task-high-value-102 locked awaiting the operator
         await run_rest_demo(args.agent_id, args.api_key, "happy", salt)
-        await run_rest_demo(args.agent_id, args.api_key, "escalate", salt)
         await run_rest_demo(args.agent_id, args.api_key, "tamper", salt)
+        await run_rest_demo(args.agent_id, args.api_key, "escalate", salt)
     else:
         await run_rest_demo(args.agent_id, args.api_key, args.scenario, salt)
 

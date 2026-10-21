@@ -53,7 +53,11 @@ async def list_my_tasks(agent_id: str, api_key: str) -> str:
 
 @mcp_server.tool()
 async def submit_task_payout(agent_id: str, api_key: str, task_id: str, amount: str, deliverables: Dict[str, str]) -> str:
-    """Submits a payout request for a completed task through the Guardian."""
+    """
+    Submits a payout request for a completed task through the Guardian.
+    Returns immediately with status RECEIVED once Gate 1 passes; the Gate 2 proof review runs in the
+    background. Poll get_payout_status until the status is no longer RECEIVED.
+    """
     key_hash = hash_api_key(api_key)
     try:
         dec_amount = Decimal(amount)
@@ -82,7 +86,8 @@ async def submit_task_payout(agent_id: str, api_key: str, task_id: str, amount: 
             "status": payout_req.status.value,
             "decision_reasons": payout_req.decision_reasons,
             "sender_batch_id": payout_req.sender_batch_id,
-            "payout_batch_id": payout_req.payout_batch_id
+            "payout_batch_id": payout_req.payout_batch_id,
+            "next": "Gate 2 review in progress; poll get_payout_status with this payout_request_id"
         })
 
 @mcp_server.tool()

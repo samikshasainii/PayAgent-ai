@@ -13,6 +13,7 @@ os.environ["OPERATOR_TOKEN"] = "test-operator-secret-token"
 from src.database import engine, Base, async_session_factory
 from src.config import settings
 from src.services.paypal_client import paypal_client
+from src.services import gate2_reviewer
 
 
 @pytest.fixture(autouse=True)
@@ -22,4 +23,19 @@ async def isolated_test_db():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
+    # Never let a background Gate 2 review outlive its test (the next test drops the tables)
+    await gate2_reviewer.drain()
+
+
+async def settle(client, submit_resp, headers):
+    """
+    Async Gate 2: asserts the submission was accepted (202 RECEIVED), waits for the background
+    review (and dispatch) to finish, and returns the request's resulting JSON.
+    """
+    assert submit_resp.status_code == 202, submit_resp.text
+    assert submit_resp.json()["status"] == "RECEIVED"
+    await gate2_reviewer.drain()
+    resp = await client.get(f"/api/v1/payout-requests/{submit_resp.json()['payout_request_id']}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
 

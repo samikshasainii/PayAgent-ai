@@ -74,6 +74,7 @@ For the full design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 ├── src/                   # Production application & pipeline code
 │   ├── guardian.py        # Gate 1 rules, decision table, budget reservation
 │   ├── proof_review.py    # Gate 2 LLM Proof-of-Task review
+│   ├── gate2_reviewer.py  # Async Gate 2: background review, restart-safe sweeper
 │   ├── paypal_client.py   # OAuth cache, Payouts v1, mock transport
 │   ├── poller.py / webhooks.py  # Payout status reconciliation
 │   ├── mcp_server.py      # PayAgent MCP server for agents
