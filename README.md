@@ -132,6 +132,20 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 Open [http://localhost:8000/docs](http://localhost:8000/docs) for the interactive OpenAPI documentation or [http://localhost:8000](http://localhost:8000) for the Swarm Treasury Terminal.
 
+### Step 5: Run the Demo Agent (Live Demonstration)
+Before every demo run or video take, reset the demo database to a clean baseline:
+```bash
+python -m src.seed --reset
+```
+Then run the automated multi-scenario demo agent:
+```bash
+python -m scripts.demo_agent --scenario all
+```
+This executes:
+1. **Happy Path (`--scenario happy`)**: Agent submits $25.00 Proof-of-Task -> Gate 1 returns 202 `RECEIVED` -> Gate 2 LLM reviews asynchronously and auto-approves (`AUTO_APPROVED`) -> Dispatches to PayPal Sandbox (`SUBMITTED`) -> Poller reconciles to `PAID`.
+2. **Tamper Detection (`--scenario tamper`)**: Submits an over-budget / tampered request ($150 vs $120 cap) -> Gate 1 hard rejection 422 `OVER_TASK_BUDGET` without invoking the LLM.
+3. **High-Value Escalation (`--scenario escalate`)**: Submits a high-value $120.00 proof -> Gate 1 returns 202 `RECEIVED` -> Gate 2 LLM verifies proof (`passed=True`), flags `ABOVE_AUTO_LIMIT` (>$50), and routes to `PENDING_HUMAN_APPROVAL` for operator review.
+
 ---
 
 ## 6. Testing & Verification

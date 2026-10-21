@@ -58,33 +58,52 @@ async def process_webhook_event(
     else:
         verified = await paypal_client.verify_webhook_signature(headers, event_payload)
 
-    # Persist or update webhook event for audit trail
-    stmt_any = select(WebhookEventModel).where(WebhookEventModel.event_id == event_id)
-    existing_record = (await db.execute(stmt_any)).scalar_one_or_none()
-    if existing_record:
-        existing_record.verified = verified
-        existing_record.raw = event_payload
-        existing_record.source = source
-    else:
-        webhook_record = WebhookEventModel(
-            event_id=event_id,
-            event_type=event_type,
-            resource_id=str(resource_id),
-            verified=verified,
-            source=source,
-            raw=event_payload
-        )
-        db.add(webhook_record)
-    await db.commit()
-
     if not verified:
+        # Record unverified attempt for audit trail
+        stmt_any = select(WebhookEventModel).where(WebhookEventModel.event_id == event_id)
+        existing_record = (await db.execute(stmt_any)).scalar_one_or_none()
+        if existing_record:
+            existing_record.verified = False
+            existing_record.raw = event_payload
+            existing_record.source = source
+        else:
+            webhook_record = WebhookEventModel(
+                event_id=event_id,
+                event_type=event_type,
+                resource_id=str(resource_id),
+                verified=False,
+                source=source,
+                raw=event_payload
+            )
+            db.add(webhook_record)
+        await db.commit()
         logger.warning(f"Webhook event signature verification failed: {event_id}")
         return {"status": "unverified", "event_id": event_id}
+
+    # Helper to persist verified webhook record
+    async def _save_verified_record():
+        stmt_any = select(WebhookEventModel).where(WebhookEventModel.event_id == event_id)
+        rec = (await db.execute(stmt_any)).scalar_one_or_none()
+        if rec:
+            rec.verified = True
+            rec.raw = event_payload
+            rec.source = source
+        else:
+            db.add(WebhookEventModel(
+                event_id=event_id,
+                event_type=event_type,
+                resource_id=str(resource_id),
+                verified=True,
+                source=source,
+                raw=event_payload
+            ))
 
     # 3. Monotonic state transition
     target_status = EVENT_TO_STATUS.get(event_type)
     if not target_status:
         # Informational event (e.g. PAYMENT.PAYOUTSBATCH.PROCESSING, SUCCESS)
+        await _save_verified_record()
+        await db.commit()
         return {"status": "recorded", "event_id": event_id, "event_type": event_type}
 
     # Match request via payout_item_id or payout_batch_id or sender_batch_id
@@ -113,6 +132,8 @@ async def process_webhook_event(
 
     if not req:
         logger.info(f"No local payout request matched for webhook {event_id} ({event_type})")
+        await _save_verified_record()
+        await db.commit()
         return {"status": "no_matching_request", "event_id": event_id}
 
     # Check if transition is valid/monotonic
@@ -121,6 +142,8 @@ async def process_webhook_event(
         logger.info(
             f"Ignoring out-of-order webhook event {event_id}: cannot transition {req.payout_request_id} from {req.status} to {target_status}"
         )
+        await _save_verified_record()
+        await db.commit()
         return {"status": "ignored_out_of_order", "current_status": req.status.value, "target_status": target_status.value}
 
     # Update item record if present
@@ -140,9 +163,17 @@ async def process_webhook_event(
                 errors=errors
             ))
 
-    await transition_payout_request_status(db, req, target_status, decided_by="paypal_webhook")
-    await db.commit()
-    await db.refresh(req)
+    # PF1 FIX: State transition and verified webhook record are committed in the same transaction.
+    # If the state transition raises, rollback undoes both, allowing PayPal's retry to be processed.
+    try:
+        await transition_payout_request_status(db, req, target_status, decided_by="paypal_webhook")
+        await _save_verified_record()
+        await db.commit()
+        await db.refresh(req)
+    except Exception as exc:
+        await db.rollback()
+        logger.error(f"Failed to process state transition for webhook {event_id}: {exc}")
+        raise
 
     return {
         "status": "processed",

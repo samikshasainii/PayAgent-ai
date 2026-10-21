@@ -61,6 +61,17 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
             data = resp.json()
             if resp.status_code == 202:
                 data = await wait_for_gate2(client, headers, data["payout_request_id"])
+
+            # PF2: Keep polling through SUBMITTED until terminal status (cap ~60s) so batch ID and final status are printed
+            if data.get("status") == "SUBMITTED":
+                print("   ⏳ Payout SUBMITTED to PayPal. Polling until poller reconciliation...")
+                t_poll = time.time()
+                while data.get("status") == "SUBMITTED" and (time.time() - t_poll < 60.0):
+                    await asyncio.sleep(2.0)
+                    poll_resp = await client.get(f"/api/v1/payout-requests/{data['payout_request_id']}", headers=headers)
+                    if poll_resp.status_code == 200:
+                        data = poll_resp.json()
+
             print(f"   Payout Request ID: {data.get('payout_request_id')}")
             print(f"   Status:            {data.get('status')}")
             print(f"   Decision Reasons:  {data.get('decision_reasons')}")
@@ -70,15 +81,27 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
             if data.get("status") == "PAID":
                 print("   🎉 SUCCESS! Payout settled on PayPal sandbox.")
             elif data.get("status") == "SUBMITTED":
-                print("   ⏳ SUBMITTED to PayPal. Poller will reconcile final status.")
+                print("   ⏳ Still SUBMITTED to PayPal (poller sweep will reconcile).")
 
         elif scenario == "escalate":
-            # Scenario B: High-value task ($120.00 > $50.00) -> PENDING_HUMAN_APPROVAL
+            # Scenario B: High-value task ($120.00 > $50.00) -> PENDING_HUMAN_APPROVAL (ABOVE_AUTO_LIMIT)
             task_id = "task-high-value-102"
             amount = "120.00"
             deliverables = {
-                "audit_report": f"Completed deep architectural analysis of distributed settlement pipeline. [run {run_salt}]",
-                "test_suite_logs": f"Passed 500 concurrent load test runs without lock contention. [run {run_salt}]"
+                "audit_report": (
+                    f"Comprehensive Architectural Risk Audit [run {run_salt}]:\n"
+                    "1. Threat Model & Concurrency Analysis: Reviewed distributed settlement pipeline, database WAL configuration, "
+                    "and atomic budget reservation invariants under high concurrency. Identified zero reentrancy risks.\n"
+                    "2. Idempotency & Fault Tolerance: Validated deterministic client-generated saved-ID pattern (`sender_batch_id`), "
+                    "atomic compare-and-set status transitions, and transient 504 timeout recovery policies.\n"
+                    "3. Security Boundaries: Verified strict delimiter isolation on all untrusted agent deliverables and SHA-256 artifact hashing."
+                ),
+                "test_suite_logs": (
+                    f"Stress Benchmark & Load Test Logs [run {run_salt}]:\n"
+                    "- Concurrency: 500 parallel worker threads executing concurrent write transactions against SQLite with PRAGMA busy_timeout=5000.\n"
+                    "- Performance Metrics: 0 lock timeouts, 0 database busy errors, p99 latency 14.2ms, mean throughput 1,380 txn/sec.\n"
+                    "- Stress Results: All 500 concurrent payout hold reservations completed atomically with zero race conditions or double-spend anomalies."
+                )
             }
 
             print(f"1. Submitting High-Value Proof-of-Task for '{task_id}' (${amount})...")
