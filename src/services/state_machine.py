@@ -139,23 +139,45 @@ async def release_spent_budget(
     if res.rowcount == 0:
         raise RuntimeError(f"Failed to release spent budget of {amount} for agent {agent_id} in window {window_start}")
 
+class TransitionResult:
+    """
+    Result object returned by transition_payout_request_status indicating
+    the updated PayoutRequestModel and whether this call won the atomic CAS.
+    """
+    def __init__(self, request: PayoutRequestModel, won: bool):
+        self.request = request
+        self.won = won
+
+    def __bool__(self) -> bool:
+        return self.won
+
+    def __iter__(self):
+        yield self.request
+        yield self.won
+
+    def __getattr__(self, name):
+        return getattr(self.request, name)
+
+    def __repr__(self):
+        return f"<TransitionResult request={self.request.payout_request_id} status={self.request.status} won={self.won}>"
+
+
 async def transition_payout_request_status(
     db: AsyncSession,
     request: PayoutRequestModel,
     new_status: PayoutRequestStatus,
     decided_by: Optional[str] = None,
     expected_old_status: Optional[PayoutRequestStatus] = None
-) -> PayoutRequestModel:
+) -> TransitionResult:
     """
     Executes state transition with atomic Compare-and-Set (CAS).
     Only if exactly 1 row changed in the database will budget and task updates be applied.
     If 0 rows changed (another concurrent writer won the transition), treats as already transitioned
-    and returns without touching budget holds.
+    and returns TransitionResult(request, won=False) without touching budget holds.
     """
     old_status = expected_old_status or request.status
     if old_status == new_status:
-        request._cas_won = False
-        return request
+        return TransitionResult(request, False)
 
     allowed = ALLOWED_TRANSITIONS.get(old_status, set())
     if new_status not in allowed:
@@ -184,10 +206,7 @@ async def transition_payout_request_status(
     if cas_res.rowcount == 0:
         # Race lost: another writer already updated the status in DB
         await db.refresh(request)
-        request._cas_won = False
-        return request
-
-    request._cas_won = True
+        return TransitionResult(request, False)
 
     # Update in-memory object attributes
     request.status = new_status
@@ -229,7 +248,7 @@ async def transition_payout_request_status(
             task.status = TaskStatus.PAYOUT_IN_PROGRESS
 
     await db.flush()
-    return request
+    return TransitionResult(request, True)
 
 async def cancel_unclaimed_payout_request(
     db: AsyncSession,
@@ -308,9 +327,10 @@ async def cancel_unclaimed_payout_request(
         )
 
     # Now execute state machine transition locally
-    return await transition_payout_request_status(
+    res = await transition_payout_request_status(
         db=db,
         request=request,
         new_status=PayoutRequestStatus.CANCELED,
         decided_by=operator_id
     )
+    return res.request

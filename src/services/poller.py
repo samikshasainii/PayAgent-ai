@@ -88,8 +88,8 @@ async def apply_batch_reconciliation(
     if target_status and req.status != target_status:
         allowed = ALLOWED_TRANSITIONS.get(req.status, set())
         if target_status in allowed:
-            await transition_payout_request_status(db, req, target_status)
-            transitioned = True
+            res = await transition_payout_request_status(db, req, target_status)
+            transitioned = res.won
 
     if transitioned:
         await db.flush()

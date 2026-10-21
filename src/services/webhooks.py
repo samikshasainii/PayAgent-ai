@@ -169,9 +169,8 @@ async def process_webhook_event(
     # If the state transition raises, rollback undoes both, allowing PayPal's retry to be processed.
     # Concurrency loser (CAS rowcount == 0) safely returns 'already_applied' without duplicate commits.
     try:
-        await transition_payout_request_status(db, req, target_status, decided_by="paypal_webhook")
-        cas_won = getattr(req, "_cas_won", True)
-        if not cas_won:
+        transition_res = await transition_payout_request_status(db, req, target_status, decided_by="paypal_webhook")
+        if not transition_res.won:
             await db.rollback()
             return {"status": "already_applied", "event_id": event_id}
         await _save_verified_record()
