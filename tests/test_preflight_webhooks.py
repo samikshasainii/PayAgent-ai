@@ -17,6 +17,7 @@ from src.models.budget import BudgetWindowModel
 from src.schemas.enums import AgentStatus, TaskStatus, PayoutRequestStatus
 from src.services.guardian import get_current_hour_window
 from src.services.webhooks import process_webhook_event
+import src.services.webhooks as webhooks_module
 from src.services.poller import reconcile_all_pending, apply_batch_reconciliation
 from src.services.status_mapping import PAYPAL_ITEM_TO_REQUEST_STATUS, PAYPAL_EVENT_TO_REQUEST_STATUS
 
@@ -412,3 +413,78 @@ async def test_counter5_poller_sweeps_onhold_and_blocked(isolated_test_db):
         t_blk = (await db.execute(select(TaskModel).where(TaskModel.task_id == pipe_blocked["task_id"]))).scalar_one()
         assert t_hold.status == TaskStatus.PAID
         assert t_blk.status == TaskStatus.PAID
+
+
+@pytest.mark.asyncio
+async def test_e2_payout_items_collision_raises_500_with_no_state_change(isolated_test_db):
+    """
+    E2 Entry Fix Test:
+    Forces an IntegrityError on the payout_items table during webhook processing.
+    Asserts that the webhook receiver re-raises the error (HTTP 500), does NOT treat it
+    as already_applied, and preserves the payout request in SUBMITTED status with no budget changes.
+    """
+    pipe = await _create_test_pipeline("e2_coll", amount=Decimal("30.00"), reserved_amount=Decimal("30.00"))
+    event_id = f"WH-E2-{uuid.uuid4().hex[:8]}"
+    existing_item_id = f"ITEM-EXISTING-{uuid.uuid4().hex[:6]}"
+
+    # Seed an existing payout_item row to collide with
+    async with async_session_factory() as db:
+        db.add(PayoutItemModel(
+            payout_item_id=existing_item_id,
+            payout_request_id=pipe["req_id"],
+            transaction_status="PENDING"
+        ))
+        await db.commit()
+
+    payload = {
+        "id": event_id,
+        "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+        "resource": {
+            "payout_item_id": pipe["item_id"],
+            "payout_batch_id": pipe["batch_id"],
+            "transaction_status": "SUCCESS"
+        }
+    }
+    headers = {"Authorization": "Bearer test-operator-secret-token"}
+
+    # Intercept process_webhook_event to inject a conflicting payout_items row into the session before commit
+    orig_transition = webhooks_module.transition_payout_request_status
+
+    async def _transition_with_payout_items_collision(db, req, target_status, decided_by=None):
+        res = await orig_transition(db, req, target_status, decided_by=decided_by)
+        # Inject duplicate payout_item to force IntegrityError on payout_items PK
+        db.add(PayoutItemModel(
+            payout_item_id=existing_item_id,
+            payout_request_id=req.payout_request_id,
+            transaction_status="DUPLICATE"
+        ))
+        return res
+
+    with patch("src.services.webhooks.transition_payout_request_status", side_effect=_transition_with_payout_items_collision):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test"
+        ) as client:
+            resp = await client.post("/api/v1/webhooks/simulate", json=payload, headers=headers)
+            assert resp.status_code == 500, f"Expected 500 on payout_items collision, got {resp.status_code}: {resp.text}"
+
+    # Verify atomic rollback: request still SUBMITTED, budget hold kept, no verified event
+    async with async_session_factory() as db:
+        req = (await db.execute(select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == pipe["req_id"]))).scalar_one()
+        assert req.status == PayoutRequestStatus.SUBMITTED
+
+        task = (await db.execute(select(TaskModel).where(TaskModel.task_id == pipe["task_id"]))).scalar_one()
+        assert task.status == TaskStatus.PAYOUT_IN_PROGRESS
+
+        bw = (await db.execute(select(BudgetWindowModel).where(
+            BudgetWindowModel.agent_id == pipe["agent_id"],
+            BudgetWindowModel.window_start == pipe["hour_window"]
+        ))).scalar_one()
+        assert bw.reserved == Decimal("30.00")
+        assert bw.spent == Decimal("0.00")
+
+        wh_ev = (await db.execute(select(WebhookEventModel).where(
+            WebhookEventModel.event_id == event_id,
+            WebhookEventModel.verified == True
+        ))).scalar_one_or_none()
+        assert wh_ev is None, "Payout items collision must NOT mark webhook event verified=True"

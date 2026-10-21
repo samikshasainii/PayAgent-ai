@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, Optional
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.webhook import WebhookEventModel
@@ -176,10 +177,17 @@ async def process_webhook_event(
         await _save_verified_record()
         await db.commit()
         await db.refresh(req)
+    except IntegrityError as exc:
+        await db.rollback()
+        exc_str = str(exc).lower()
+        # Treat ONLY webhook_events primary-key/unique collision as already_applied
+        if "webhook_events" in exc_str and ("unique" in exc_str or "duplicate" in exc_str or "primary" in exc_str):
+            logger.info(f"Concurrent webhook_events PK collision for {event_id}, treating as already applied")
+            return {"status": "already_applied", "event_id": event_id}
+        logger.error(f"Integrity error during webhook processing for {event_id}: {exc}")
+        raise
     except Exception as exc:
         await db.rollback()
-        if "UNIQUE constraint failed" in str(exc) or "IntegrityError" in type(exc).__name__:
-            return {"status": "already_applied", "event_id": event_id}
         logger.error(f"Failed to process state transition for webhook {event_id}: {exc}")
         raise
 
