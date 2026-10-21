@@ -17,7 +17,44 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: Milestone 3 (Console SSE, MCP client verification, Postman, Render deploy). See Active Milestone below.
+- **Next Up**: Milestone 3 (Console SSE, MCP client verification, Postman, Render deploy). Start with the **M3.0 Pre-flight** fixes below.
+
+---
+
+## Reviewer Handoff to Implementation Agent (2026-10-21, `main` pushed to origin)
+Read this before starting M3. It records what the reviewer changed directly, the contracts those changes introduced, and the review findings that gate M3.
+
+### Changes made by the reviewer
+1. **LLM provider: OpenAI -> Gemini** (OpenAI key unpaid). Gemini is called through its OpenAI-compatible endpoint, so the `openai` SDK and structured outputs are unchanged.
+   - `src/config.py`: `GEMINI_API_KEY`, `LLM_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta/openai/`), `LLM_MODEL=gemini-3.5-flash-lite`, `LLM_TIMEOUT_SECONDS=45`. `LLM_API_KEY` resolves from the key matching the provider; one vendor's key is never sent to another.
+   - `src/services/proof_review.py`: client built with `base_url=settings.LLM_BASE_URL`.
+   - `.env.example`, `render.yaml`, README, ARCHITECTURE.md (stack row, row 9 timeout) updated; `.gitignore` covers `*.db-wal` / `*.db-shm`.
+   - Why flash-lite / 45 s (measured): `gemini-3.8-flash` allows only 20 free requests/day; flash-lite answers in 10-45 s per call; `reasoning_effort=low` does not reduce latency and `none` is rejected.
+2. **Asynchronous Gate 2** (commit `ac4756a`, merge `6922107`; ARCHITECTURE.md §5.6):
+   - `POST /api/v1/payout-requests` and MCP `submit_task_payout` run Gate 1 unchanged, then commit the request as `RECEIVED` and return **202**.
+   - New `src/services/gate2_reviewer.py`: background LLM review with no DB transaction open; decision written with a single CAS `UPDATE ... WHERE status = 'RECEIVED'`; `PROOF_DOUBTFUL` incident; then the unchanged `dispatch_payout`.
+   - Quarantine during review: a passing verdict escalates to `PENDING_HUMAN_APPROVAL` (`AGENT_QUARANTINED`) instead of paying.
+   - Sweeper (started/stopped in the `main.py` lifespan; every 10 s and at startup) resumes `RECEIVED` rows and `APPROVED` rows that never reached PayPal; failed reviews retry after `LLM_TIMEOUT_SECONDS + 30` s.
+3. **Bugs fixed with it:**
+   - **Double payment of one task** (reproduced on the pre-merge code: two $75 requests on one $100 task both `PAID`, $150 total). The task now moves `OPEN -> PAYOUT_IN_PROGRESS` with a conditional update when Gate 1 passes; a second submission gets 403 `TASK_NOT_ASSIGNED` until the first is rejected, fails, or is paid.
+   - **Double dispatch by racing reviewers**: `transition_payout_request_status` refreshes on a lost CAS and cannot tell it lost, so Gate 2 uses its own atomic claim.
+   - Row 7 artifact replay now treats `RECEIVED` as active.
+4. **Demo agent** (`scripts/demo_agent.py`): polls for the Gate 2 decision; `--scenario all` runs happy -> tamper -> escalate (escalate leaves its task locked); explains a 403 when tamper runs after escalate; client timeout 60 s.
+5. **Console**: `RECEIVED` badge in `src/static/index.html`.
+6. **Tests** (37 total): `tests/conftest.py` `settle()` helper and post-test `gate2_reviewer.drain()`; six existing tests settle before asserting (final-state checks unchanged); circuit-breaker test uses one task per doubtful attempt; new `tests/test_gate2_async.py` (8 tests).
+7. **Verification by the reviewer**: real-server runs with real Gemini (202 immediate; server killed mid-review resumed and paid on restart); live sandbox rehearsal (batch `UKC87D9JZ2ZDU` confirmed `SUCCESS` against PayPal); 37/37 tests.
+
+### Contracts to follow from now on
+- Submitting a payout returns **202 `RECEIVED`**. Clients (console, Postman, MCP client, demo agent) must poll `GET /api/v1/payout-requests/{id}` or `get_payout_status` for the decision. Never assume a final status in the submit response.
+- **One task, one active payout request.** An agent cannot resubmit for a task while its previous request is in review or awaiting a human; the operator rejects first.
+- Gate 2 decisions out of `RECEIVED` go through `gate2_reviewer`'s CAS claim, not `transition_payout_request_status`.
+- Tests that submit payouts use `settle()` from `tests/conftest.py` (`from conftest import settle`).
+- Single process only (`--workers 1`): the sweeper's in-flight tracking is in memory.
+- **Never print secrets or shell-export `.env` lines.** A key fragment leaked this way on 2026-10-21 and the key was rotated. Load secrets through `settings` or `dotenv`.
+- Gemini free tier is slow (10-45 s) and quota-limited: keep live calls few and never loop benchmarks unattended.
+
+### Review findings to resolve
+See **M3.0 Pre-flight** (must be done first) and **M3.6** (before the first Render deploy) in the Active Milestone section. Non-blocking nit: 15 of 16 entries in `data/gemini_eval_report.json` predate the `model`/`timestamp` fields (they were run on flash-lite); backfill on the next benchmark run.
 
 ---
 
@@ -85,6 +122,12 @@
 ## Active Milestone: M3 (Console, MCP & Sponsor Artifacts) — Wed Oct 28 – Fri Oct 30
 - **Goal**: Live operator console, MCP client verified end-to-end, Postman collection, hosted Render instance with verified webhooks. End of M3: record the rough-cut video.
 
+### M3.0 Pre-flight (resolve before starting M3.1-M3.5)
+- [ ] PF1 Webhook processing order (`src/services/webhooks.py`): the event is committed with `verified=true` *before* the state transition, so if the transition raises (e.g. a budget-consistency `RuntimeError`), PayPal's retry is dropped as a duplicate and the event is lost. Mark the event processed in the same commit as the transition (or after it), and add a test: the transition fails on the first delivery, then the retry is processed. Must land before real webhooks are registered (M3.5).
+- [ ] PF2 Demo agent, happy path: keep polling through `SUBMITTED` until a terminal status (cap ~60 s), then print the final status and PayPal batch ID. The rehearsal printed `SUBMITTED / PayPal Batch ID: None` because polling stopped at the Gate 2 decision.
+- [ ] PF3 Demo agent, escalate scenario: Gemini scored its deliverables `PROOF_DOUBTFUL` (confidence 0.30: "brief text summaries rather than a comprehensive architectural risk audit"), so the request escalated for two reasons and recorded a circuit-breaker incident. With tamper's `OVER_TASK_BUDGET`, one `--scenario all` run records **2 incidents** for `agent-code-reviewer-01`; a second run within 10 minutes quarantines the demo agent and breaks the next happy path on camera. Make the escalate deliverables substantive so only `ABOVE_AUTO_LIMIT` fires (verify with one live call), and document `python -m src.seed --reset` before every take in the README demo steps.
+- [ ] PF4 Latency risk: escalate took 44.9 s against the 45 s timeout. A timeout is fail-safe (`LLM_UNAVAILABLE` -> human review), but on camera the happy path would land in the HITL queue instead of `PAID`. Before recording, send one warm-up call and keep a re-take plan; do not raise the timeout without updating ARCHITECTURE.md row 9.
+
 ### Acceptance Criteria
 - [ ] M3.1 SSE stream: `GET /api/v1/events` emits payout-request, task, and agent changes (including `RECEIVED` -> decision); the console switches from 2s polling to SSE, with polling as fallback on disconnect.
 - [ ] M3.2 Console:
@@ -99,16 +142,13 @@
   - `PUBLIC_HOST` set and present in the MCP `allowed_hosts`/`allowed_origins` (avoids 421 "Invalid Host header" under mcp 2.3.0 exact matching)
   - Register `https://<PUBLIC_HOST>/api/v1/webhooks/paypal` as the sandbox webhook, then set `PAYPAL_WEBHOOK_ID`
   - Free-tier sleep: warm the instance before recording
-- [ ] M3.6 Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
-- [ ] M3.7 Webhook processing order: the event is committed as `verified` before the state transition; if the transition fails, PayPal's retry is dropped as a duplicate. Mark processed only after the transition commits.
-- [ ] M3.8 Demo-agent polish (found in the M2 rehearsal):
-  - Happy path: keep polling through `SUBMITTED` until a terminal status, so the run shows `PAID` and the batch ID instead of `SUBMITTED / batch None`
-  - Escalate scenario: Gemini judged its deliverables weak (`PROOF_DOUBTFUL`, confidence 0.30) on top of `ABOVE_AUTO_LIMIT`, which records a circuit-breaker incident. One `--scenario all` run records 2 incidents (tamper + escalate) for `agent-code-reviewer-01`, so a second run within 10 minutes quarantines the demo agent. Make the escalate deliverables substantive so only `ABOVE_AUTO_LIMIT` fires, and run `python -m src.seed --reset` before each take.
+- [ ] M3.6 (gate for M3.5) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
 
 ### Done When
 - A verified real PayPal webhook moves a request on the hosted instance
 - The MCP client completes a payout request end-to-end
 - The Postman collection runs green
+- M3.0 Pre-flight items closed and reviewed
 - 37+ tests green; rough-cut video recorded
 
 ### Known Limitation (accepted, not M3 scope)
