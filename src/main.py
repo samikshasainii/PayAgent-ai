@@ -366,6 +366,11 @@ async def paypal_webhook_receiver(
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     res = await process_webhook_event(db, body, headers, source="paypal")
+    if res.get("status") == "unverified":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "WEBHOOK_UNVERIFIED", "message": "PayPal webhook signature verification failed"}
+        )
     return res
 
 if settings.DEMO_MODE and settings.APP_ENV != "production":

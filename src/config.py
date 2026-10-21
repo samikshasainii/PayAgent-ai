@@ -41,11 +41,14 @@ class Settings(BaseSettings):
     SANDBOX_RECIPIENT_EMAIL: Optional[str] = None
     MOCK_PAYPAL: bool = False
 
-    # LLM (Gate 2)
+    # LLM (Gate 2): any OpenAI-compatible endpoint; defaults to Gemini's.
+    # For OpenAI, set LLM_BASE_URL=https://api.openai.com/v1 and LLM_MODEL=gpt-4o-mini.
+    GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-4o-mini"
-    LLM_TIMEOUT_SECONDS: int = 10
+    LLM_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    LLM_MODEL: str = "gemini-3.8-flash"
+    LLM_TIMEOUT_SECONDS: int = 30
     MOCK_LLM: bool = False
 
     @model_validator(mode="after")
@@ -64,11 +67,12 @@ class Settings(BaseSettings):
         elif self.HOST != "0.0.0.0" and self.APP_HOST == "0.0.0.0":
             self.APP_HOST = self.HOST
 
-        # Sync LLM API Key
-        if not self.LLM_API_KEY and self.OPENAI_API_KEY:
-            self.LLM_API_KEY = self.OPENAI_API_KEY
-        elif not self.OPENAI_API_KEY and self.LLM_API_KEY:
-            self.OPENAI_API_KEY = self.LLM_API_KEY
+        # Resolve LLM API key for the configured provider (never send one vendor's key to another)
+        if not self.LLM_API_KEY:
+            if "googleapis.com" in self.LLM_BASE_URL:
+                self.LLM_API_KEY = self.GEMINI_API_KEY
+            else:
+                self.LLM_API_KEY = self.OPENAI_API_KEY
 
         # Sync Circuit breaker params
         if self.CIRCUIT_BREAKER_WINDOW_MINUTES != 10 and self.CIRCUIT_BREAKER_WINDOW_SECONDS == 600:

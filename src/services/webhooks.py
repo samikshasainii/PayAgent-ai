@@ -41,11 +41,14 @@ async def process_webhook_event(
     if not event_id:
         return {"status": "error", "message": "Missing event id"}
 
-    # 1. Deduplication on event_id
-    stmt = select(WebhookEventModel).where(WebhookEventModel.event_id == event_id)
-    existing_event = (await db.execute(stmt)).scalar_one_or_none()
-    if existing_event:
-        logger.info(f"Duplicate webhook event ignored: {event_id}")
+    # 1. Deduplication: only ignore if this event was ALREADY successfully verified & processed
+    stmt_verified = select(WebhookEventModel).where(
+        WebhookEventModel.event_id == event_id,
+        WebhookEventModel.verified == True
+    )
+    existing_verified = (await db.execute(stmt_verified)).scalar_one_or_none()
+    if existing_verified:
+        logger.info(f"Duplicate verified webhook event ignored: {event_id}")
         return {"status": "duplicate", "event_id": event_id}
 
     # 2. Cryptographic signature verification
@@ -55,16 +58,23 @@ async def process_webhook_event(
     else:
         verified = await paypal_client.verify_webhook_signature(headers, event_payload)
 
-    # Persist webhook event for audit trail
-    webhook_record = WebhookEventModel(
-        event_id=event_id,
-        event_type=event_type,
-        resource_id=str(resource_id),
-        verified=verified,
-        source=source,
-        raw=event_payload
-    )
-    db.add(webhook_record)
+    # Persist or update webhook event for audit trail
+    stmt_any = select(WebhookEventModel).where(WebhookEventModel.event_id == event_id)
+    existing_record = (await db.execute(stmt_any)).scalar_one_or_none()
+    if existing_record:
+        existing_record.verified = verified
+        existing_record.raw = event_payload
+        existing_record.source = source
+    else:
+        webhook_record = WebhookEventModel(
+            event_id=event_id,
+            event_type=event_type,
+            resource_id=str(resource_id),
+            verified=verified,
+            source=source,
+            raw=event_payload
+        )
+        db.add(webhook_record)
     await db.commit()
 
     if not verified:

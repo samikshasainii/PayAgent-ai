@@ -36,7 +36,7 @@ PayAgent is the **only component that holds PayPal credentials**. Agents never s
 | Language | Python 3.11 | Matches `render.yaml` `PYTHON_VERSION`. |
 | API | FastAPI + Uvicorn (**single worker**) | Single worker is a documented assumption of the budget-reservation design (§5.3). |
 | Agent interface | REST **and** an MCP server exposed by PayAgent (`mcp` Python SDK) | Lets any MCP-capable agent request payment without custom glue (§6.5). |
-| Proof-of-Task review | LangChain + `with_structured_output` (OpenAI `gpt-4o-mini` default) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
+| Proof-of-Task review | `openai` SDK structured outputs against any OpenAI-compatible endpoint (Gemini `gemini-3.8-flash` default; OpenAI via `LLM_BASE_URL`) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
 | Settlement | PayPal Payouts v1 (`POST /v1/payments/payouts`, `GET /v1/payments/payouts/{id}`) | USD only in v1. |
 | Status updates | PayPal webhooks (RSA-verified) **+** reconciliation poller | Poller is the source of truth when no public URL exists (local judging). |
 | Persistence | SQLAlchemy async; **SQLite default**, Postgres optional via `DATABASE_URL` | Judges run locally with zero setup; hosted demo may point at a persistent Postgres (e.g. Neon). |

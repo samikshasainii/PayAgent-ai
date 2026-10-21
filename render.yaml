@@ -28,10 +28,12 @@ services:
         sync: false
       - key: SANDBOX_RECIPIENT_EMAIL
         sync: false
-      - key: OPENAI_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
+      - key: LLM_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: LLM_MODEL
-        value: gpt-4o-mini
+        value: gemini-3.8-flash
       - key: OPERATOR_TOKEN
         sync: false
       # Free-tier disk is ephemeral: point this at an external persistent Postgres

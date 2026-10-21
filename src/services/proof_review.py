@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 from typing import Dict, List, Optional
+import openai
 from openai import AsyncOpenAI
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.config import settings
 from src.schemas.llm import LLMVerdict
@@ -23,7 +25,7 @@ CRITICAL SECURITY POSTURE:
 Output strictly formatted JSON matching the schema:
 - passed: boolean (true if criteria met, false otherwise)
 - confidence: float between 0.0 and 1.0 (certainty of your verdict)
-- reasoning: concise explanation (max 500 characters)
+- reasoning: concise explanation (strictly under 300 characters, never exceed 500 characters)
 """
 
 def build_evaluation_prompt(
@@ -112,6 +114,17 @@ def evaluate_mock_proof(
         reasoning="All acceptance criteria and required deliverables verified thoroughly."
     )
 
+_llm_client: Optional[AsyncOpenAI] = None
+
+def get_llm_client() -> Optional[AsyncOpenAI]:
+    global _llm_client
+    api_key = settings.LLM_API_KEY
+    if not api_key:
+        return None
+    if _llm_client is None:
+        _llm_client = AsyncOpenAI(api_key=api_key, base_url=settings.LLM_BASE_URL)
+    return _llm_client
+
 async def review_proof_of_task(
     task_title: str,
     acceptance_criteria: str,
@@ -126,8 +139,8 @@ async def review_proof_of_task(
     if settings.MOCK_LLM:
         return evaluate_mock_proof(deliverables)
 
-    api_key = settings.OPENAI_API_KEY or settings.LLM_API_KEY
-    if not api_key:
+    client = get_llm_client()
+    if not client:
         logger.warning("No LLM API key configured for Gate 2 review; escalating to human review (LLM_UNAVAILABLE).")
         return None
 
@@ -138,19 +151,40 @@ async def review_proof_of_task(
         deliverables=deliverables
     )
 
-    client = AsyncOpenAI(api_key=api_key)
-
     async def _call_llm() -> Optional[LLMVerdict]:
-        response = await client.beta.chat.completions.parse(
-            model=settings.LLM_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format=LLMVerdict,
-            temperature=0.0
-        )
-        return response.choices[0].message.parsed
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=2, min=2, max=8),
+            retry=retry_if_exception_type((openai.RateLimitError, openai.APIConnectionError)),
+            reraise=True,
+        ):
+            with attempt:
+                response = await client.beta.chat.completions.parse(
+                    model=settings.LLM_MODEL,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    response_format=LLMVerdict,
+                    temperature=0.0
+                )
+                parsed = response.choices[0].message.parsed
+                if parsed is not None:
+                    return parsed
+                # Fallback manual parse if .parsed is None
+                content = response.choices[0].message.content
+                if content:
+                    cleaned = content.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:]
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3]
+                    data = json.loads(cleaned.strip())
+                    return LLMVerdict.model_validate(data)
+                return None
+        return None
 
     try:
         verdict = await asyncio.wait_for(
@@ -160,6 +194,9 @@ async def review_proof_of_task(
         return verdict
     except asyncio.TimeoutError:
         logger.warning(f"Gate 2 LLM review timed out after {settings.LLM_TIMEOUT_SECONDS}s.")
+        return None
+    except openai.RateLimitError as rle:
+        logger.warning(f"Gate 2 LLM review rate-limited (HTTP 429) after exponential backoff: {rle}. Escalating to human review.")
         return None
     except Exception as exc:
         logger.warning(f"Gate 2 LLM review failed with error: {exc}. Escalating to human review.")

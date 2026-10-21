@@ -25,6 +25,7 @@ class PayoutRequestModel(Base):
     payout_batch_id = Column(String(64), nullable=True, index=True)
     window_start = Column(String(32), nullable=True, index=True)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
     decided_by = Column(String(64), nullable=True)
 
     items = relationship("PayoutItemModel", back_populates="request", cascade="all, delete-orphan", lazy="selectin")

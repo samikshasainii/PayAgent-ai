@@ -388,6 +388,159 @@ async def test_m2_paypal_webhooks_verification_dedup_and_monotonicity(op_headers
             assert r_final.status == PayoutRequestStatus.PAID
 
 @pytest.mark.asyncio
+async def test_m2_unsigned_webhook_rejected_in_live_mode():
+    """
+    Auditor P0 check:
+    In live mode, missing PAYPAL_WEBHOOK_ID or missing/invalid signature headers
+    strictly rejects unsigned webhooks with HTTP 400, preserving request status and budget holds.
+    """
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        agent_id = f"ag-unv-{int(time.time() * 1000)}"
+        task_id = f"t-unv-{int(time.time() * 1000)}"
+        payout_id = f"req-unv-{int(time.time() * 1000)}"
+        batch_id = f"BATCH_UNV_{int(time.time() * 1000)}"
+        hour_window = get_current_hour_window()
+
+        async with async_session_factory() as db:
+            ag = AgentModel(agent_id=agent_id, name="Unv Agent", api_key_hash=hash_api_key("key"), status=AgentStatus.ACTIVE, hourly_cap=Decimal("200.00"))
+            bw = BudgetWindowModel(agent_id=agent_id, window_start=hour_window, reserved=Decimal("30.00"), spent=Decimal("0.00"))
+            task = TaskModel(task_id=task_id, title="Unv Task", acceptance_criteria="OK", budget=Decimal("30.00"), currency="USD", allowed_recipient="c@sb.com", assigned_agent_id=agent_id, required_deliverables=["report"], deadline=utc_now() + timedelta(days=2), status=TaskStatus.PAYOUT_IN_PROGRESS)
+            req = PayoutRequestModel(
+                payout_request_id=payout_id,
+                task_id=task_id,
+                agent_id=agent_id,
+                amount=Decimal("30.00"),
+                deliverables={"report": "Done"},
+                artifact_sha256="sha_unv",
+                status=PayoutRequestStatus.SUBMITTED,
+                decision_reasons=["AUTO_APPROVED"],
+                sender_batch_id=f"sb_{payout_id}",
+                paypal_request_id=payout_id,
+                payout_batch_id=batch_id,
+                window_start=hour_window,
+                created_at=utc_now()
+            )
+            item = PayoutItemModel(
+                payout_item_id=f"ITEM_{batch_id}",
+                payout_request_id=payout_id,
+                transaction_status="PENDING"
+            )
+            db.add_all([ag, bw, task, req, item])
+            await db.commit()
+
+        # Temporarily switch to live mode without webhook ID
+        orig_mock = settings.MOCK_PAYPAL
+        orig_hook_id = settings.PAYPAL_WEBHOOK_ID
+        paypal_client.is_mock = False
+        try:
+            settings.MOCK_PAYPAL = False
+            settings.PAYPAL_WEBHOOK_ID = None
+
+            event_payload = {
+                "id": f"WH-FORGED-{int(time.time() * 1000)}",
+                "event_type": "PAYMENT.PAYOUTS-ITEM.FAILED",
+                "resource": {
+                    "payout_batch_id": batch_id,
+                    "payout_item_id": f"ITEM_{batch_id}",
+                    "transaction_status": "FAILED"
+                }
+            }
+            resp = await client.post("/api/v1/webhooks/paypal", json=event_payload)
+            # Must strictly reject unsigned webhook
+            assert resp.status_code == 400
+            assert resp.json()["detail"]["error"] == "WEBHOOK_UNVERIFIED"
+
+            # Request status and budget reservation MUST remain untouched
+            async with async_session_factory() as db:
+                r_check = (await db.execute(select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == payout_id))).scalar_one()
+                assert r_check.status == PayoutRequestStatus.SUBMITTED
+
+                bw_check = (await db.execute(select(BudgetWindowModel).where(BudgetWindowModel.agent_id == agent_id, BudgetWindowModel.window_start == hour_window))).scalar_one()
+                assert bw_check.reserved == Decimal("30.00")
+                assert bw_check.spent == Decimal("0.00")
+        finally:
+            settings.MOCK_PAYPAL = orig_mock
+            settings.PAYPAL_WEBHOOK_ID = orig_hook_id
+            paypal_client.is_mock = orig_mock
+
+@pytest.mark.asyncio
+async def test_m2_unverified_webhook_does_not_block_retry():
+    """
+    Auditor P1 check:
+    A failed signature check on initial delivery must NOT block PayPal's retry
+    as a duplicate.
+    """
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        agent_id = f"ag-ret-{int(time.time() * 1000)}"
+        task_id = f"t-ret-{int(time.time() * 1000)}"
+        payout_id = f"req-ret-{int(time.time() * 1000)}"
+        batch_id = f"BATCH_RET_{int(time.time() * 1000)}"
+        event_id = f"WH-RETRY-{int(time.time() * 1000)}"
+        hour_window = get_current_hour_window()
+
+        async with async_session_factory() as db:
+            ag = AgentModel(agent_id=agent_id, name="Retry Agent", api_key_hash=hash_api_key("key"), status=AgentStatus.ACTIVE, hourly_cap=Decimal("200.00"))
+            bw = BudgetWindowModel(agent_id=agent_id, window_start=hour_window, reserved=Decimal("25.00"), spent=Decimal("0.00"))
+            task = TaskModel(task_id=task_id, title="Retry Task", acceptance_criteria="OK", budget=Decimal("25.00"), currency="USD", allowed_recipient="c@sb.com", assigned_agent_id=agent_id, required_deliverables=["report"], deadline=utc_now() + timedelta(days=2), status=TaskStatus.PAYOUT_IN_PROGRESS)
+            req = PayoutRequestModel(
+                payout_request_id=payout_id,
+                task_id=task_id,
+                agent_id=agent_id,
+                amount=Decimal("25.00"),
+                deliverables={"report": "Done"},
+                artifact_sha256="sha_retry",
+                status=PayoutRequestStatus.SUBMITTED,
+                decision_reasons=["AUTO_APPROVED"],
+                sender_batch_id=f"sb_{payout_id}",
+                paypal_request_id=payout_id,
+                payout_batch_id=batch_id,
+                window_start=hour_window,
+                created_at=utc_now()
+            )
+            item = PayoutItemModel(
+                payout_item_id=f"ITEM_{batch_id}",
+                payout_request_id=payout_id,
+                transaction_status="PENDING"
+            )
+            db.add_all([ag, bw, task, req, item])
+            await db.commit()
+
+        event_payload = {
+            "id": event_id,
+            "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+            "resource": {
+                "payout_batch_id": batch_id,
+                "payout_item_id": f"ITEM_{batch_id}",
+                "transaction_status": "SUCCESS"
+            }
+        }
+
+        # 1. Delivery 1: unverified failure in live mode
+        orig_mock = settings.MOCK_PAYPAL
+        paypal_client.is_mock = False
+        settings.MOCK_PAYPAL = False
+        settings.PAYPAL_WEBHOOK_ID = None
+        try:
+            resp1 = await client.post("/api/v1/webhooks/paypal", json=event_payload)
+            assert resp1.status_code == 400
+        finally:
+            settings.MOCK_PAYPAL = orig_mock
+            paypal_client.is_mock = orig_mock
+
+        # 2. Delivery 2 (PayPal Retry): verification succeeds
+        # In mock mode, verify_webhook_signature returns True
+        resp2 = await client.post("/api/v1/webhooks/paypal", json=event_payload)
+        # Must NOT be dropped as duplicate; must be processed!
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "processed"
+        assert resp2.json()["new_status"] == PayoutRequestStatus.PAID.value
+
+        # 3. Delivery 3: exact same verified event re-sent now DOES get recognized as duplicate
+        resp3 = await client.post("/api/v1/webhooks/paypal", json=event_payload)
+        assert resp3.status_code == 200
+        assert resp3.json()["status"] == "duplicate"
+
+@pytest.mark.asyncio
 async def test_m2_seed_reset_safety_guard():
     """
     Auditor requirement:

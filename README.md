@@ -97,7 +97,7 @@ For the full design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 ### Prerequisites
 - Python 3.11 or higher
 - A free [PayPal Developer Sandbox Account](https://developer.paypal.com)
-- An OpenAI API key (for the Proof-of-Task review)
+- A Gemini API key (free tier, for the Proof-of-Task review)
 
 ### Step 1: Clone and Set Up Virtual Environment
 ```bash
@@ -123,7 +123,7 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 ```
-Fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `SANDBOX_RECIPIENT_EMAIL`, and `OPENAI_API_KEY`. To try it without keys, set `MOCK_PAYPAL=true` (the console shows a MOCK MODE banner).
+Fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `SANDBOX_RECIPIENT_EMAIL`, and `GEMINI_API_KEY`. To try it without keys, set `MOCK_PAYPAL=true` (the console shows a MOCK MODE banner).
 
 ### Step 4: Run the Application
 ```bash

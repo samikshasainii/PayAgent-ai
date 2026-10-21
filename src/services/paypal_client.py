@@ -291,9 +291,15 @@ class PayPalClient:
     ) -> bool:
         """
         Verifies PayPal webhook signature via PayPal's verify-webhook-signature endpoint (SHA256withRSA).
+        Strict security: Only mock mode may skip verification.
+        In live/sandbox mode, missing PAYPAL_WEBHOOK_ID or failed signature validation strictly rejects.
         """
-        if self.is_mock or not settings.PAYPAL_WEBHOOK_ID:
+        if self.is_mock:
             return True
+
+        if not settings.PAYPAL_WEBHOOK_ID:
+            # Refuse verification in live mode when webhook ID is unconfigured
+            return False
 
         # Normalize header keys to lowercase
         norm_headers = {k.lower(): v for k, v in headers.items()}
