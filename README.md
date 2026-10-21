@@ -139,10 +139,10 @@ python -m src.seed --reset
 ```
 
 *(Optional / Recommended)* Send a warm-up call to prime the LLM endpoint connection and cache before recording:
-`ash
+```bash
 python -m scripts.demo_agent --scenario happy
 python -m src.seed --reset
-`
+```
 
 Then run the automated multi-scenario demo agent:
 ```bash
