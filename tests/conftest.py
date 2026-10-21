@@ -6,9 +6,15 @@ import pytest_asyncio
 # Configure environment strictly for test execution before importing app modules
 TEST_DB_FILE = "./data/test_payagent.db"
 os.environ["APP_ENV"] = "test"
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
+# TEST_DATABASE_URL points the suite at a disposable Postgres database (tables are dropped before every test)
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{TEST_DB_FILE}"
 os.environ["MOCK_PAYPAL"] = "true"
 os.environ["OPERATOR_TOKEN"] = "test-operator-secret-token"
+
+def pytest_report_header(config):
+    url = os.environ.get("DATABASE_URL", "")
+    dialect = "postgresql" if "postgres" in url else "sqlite"
+    return f"test database: {dialect}"
 
 from src.database import engine, Base, async_session_factory
 from src.config import settings
@@ -25,6 +31,7 @@ async def isolated_test_db():
     yield
     # Never let a background Gate 2 review outlive its test (the next test drops the tables)
     await gate2_reviewer.drain()
+    await engine.dispose()
 
 
 async def settle(client, submit_resp, headers):
@@ -38,4 +45,3 @@ async def settle(client, submit_resp, headers):
     resp = await client.get(f"/api/v1/payout-requests/{submit_resp.json()['payout_request_id']}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
-

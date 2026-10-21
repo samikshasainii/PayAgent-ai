@@ -3,6 +3,7 @@ from typing import AsyncGenerator
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
 from src.config import settings
 
 def get_database_url() -> str:
@@ -22,10 +23,17 @@ def get_database_url() -> str:
 
 DATABASE_URL = get_database_url()
 
+engine_kwargs = {
+    "echo": settings.DEBUG and False,  # Keep clean in production
+    "future": True,
+}
+if settings.APP_ENV == "test":
+    # pytest-asyncio gives each test its own event loop; pooled asyncpg connections are bound to the loop that opened them
+    engine_kwargs["poolclass"] = NullPool
+
 engine = create_async_engine(
     DATABASE_URL,
-    echo=settings.DEBUG and False,  # Keep clean in production
-    future=True,
+    **engine_kwargs,
 )
 
 # Milestone 2 SQLite concurrency hardening:
