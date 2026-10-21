@@ -3,7 +3,7 @@
 ## Executive Handoff State (Freeze: 2026-10-21)
 - **M1 Status**: **COMPLETED & VERIFIED** (All 10 items complete; working tree clean, commit `f292e45` plus Item 10 live sandbox payout verified).
   - Item 10 Live Sandbox Verification Complete: Real sandbox payout executed using US Sandbox Business REST App (`client_id` prefix `AZh...`). Demo agent submitted $25.00 Proof-of-Task, PayPal created batch `ZPM7XVPQ6S9JJ` (item ID `MM5C3BBDKYTBA`), poller reconciled live from `SUBMITTED` to `PAID` via `GET /v1/payments/payouts/ZPM7XVPQ6S9JJ`. Verified in PayPal Sandbox dashboard.
-- **M2 Status**: **PENDING SIGN-OFF** (29/29 tests passing, 100% green; awaiting async Gate 2 branch merge & end-to-end rehearsal).
+- **M2 Status**: **COMPLETED & VERIFIED** (reviewer sign-off 2026-10-21; merge commit `6922107`; 37/37 tests passing).
   - Poller Concurrency & WAL: SQLite engine configured with `PRAGMA journal_mode=WAL;` and `PRAGMA busy_timeout=5000;`. Poller queries PayPal HTTP API outside write transactions, preventing lock contention on API writes. Removed duplicate P3 logic in `reconcile_request`; updated 60s stuck wait calculation to measure from `req.updated_at`.
   - Seed Safety: `--reset` verifies non-final payout requests and refuses when non-final requests exist outside mock mode. Production credential generation clearly guided.
   - LLM Proof Review & Latency Tuning: Delimiter-fenced prompts defending against prompt injection attacks (`<<<DELIVERABLE_DATA>>>`). Switched to `gemini-3.5-flash-lite` with 45s timeout (`LLM_TIMEOUT_SECONDS=45`) to accommodate free-tier endpoint latency (measured at 10–45s per call). Structured outputs (`LLMVerdict`) with tenacity exponential backoff retries on 429 (`openai.RateLimitError`). Reasoning field sanitizer enforcing strictly $\le 500$ characters.
@@ -15,8 +15,9 @@
     - Results persisted in `data/gemini_eval_report.json`.
   - Canonical Gate 2 Decision Table: Complete implementation of rows 9–12, display-only risk scoring, and sliding-window circuit breaker (`PROOF_DOUBTFUL` records incidents; 3 incidents in 10 minutes triggers `QUARANTINED`).
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
-  - End-to-End Rehearsal: Pending merge of reviewer's `feat/async-gate2` branch (asynchronous 202 RECEIVED background review pipeline).
-- **Next Up**: Merge `feat/async-gate2`, execute end-to-end demo agent run with live PayPal + Gemini, then Milestone 3 (Console SSE, MCP Client Verification & Deploy).
+  - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
+  - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
+- **Next Up**: Milestone 3 (Console SSE, MCP client verification, Postman, Render deploy). See Active Milestone below.
 
 ---
 
@@ -38,7 +39,7 @@
 
 ---
 
-## Active Milestone: M2 (Guardian Depth & LLM Verification - Pending Sign-Off)
+## Completed Milestone: M2 (Guardian Depth & LLM Verification)
 - **Goal**: Implement Gate 2 LLM Proof-of-Task evaluation, structured outputs, prompt-injection defense, sliding-window circuit breaker, PayPal webhooks, and poller WAL/transaction optimizations.
 - **Core Tasks**:
   - [x] M2.1 Poller Transaction & SQLite Concurrency Hardening:
@@ -76,13 +77,42 @@
     - `POST /api/v1/webhooks/simulate` under `DEMO_MODE=true` and non-prod.
   - [x] M2.8 Test Suite M2:
     - Unit & integration tests for Gate 2, prompt injection evaluation fixture, poller WAL optimization, seed safety, circuit breaker quarantine, unsigned webhook rejection, retry unblocking, and webhooks (29/29 passing).
-  - [ ] M2.9 Live End-to-End Rehearsal (Pending Async Gate 2 Merge):
-    - Full end-to-end run with real Gemini + live PayPal Sandbox: demo agent submits $25, Gate 2 reviews asynchronously (202 RECEIVED -> AUTO_APPROVED), creates live PayPal payout, and poller marks PAID.
+  - [x] M2.9 Asynchronous Gate 2 (`src/services/gate2_reviewer.py`): 202 `RECEIVED`, background review with no DB transaction open, CAS decision, quarantine-during-review escalation, restart-safe sweeper, task lock at Gate 1. 8 new tests (`tests/test_gate2_async.py`).
+  - [x] M2.10 Live End-to-End Rehearsal: batch `UKC87D9JZ2ZDU` / item `XT6XFF4T5HPZA` -> `PAID`, verified against PayPal (see Handoff State).
 
 ---
 
-### Logged Milestone 3 Tasks (Deploy & Polish)
-- [ ] M3.MCP-Render: Configure `PUBLIC_HOST` environment variable on Render (e.g. `payagent-ai.onrender.com`) in `mcp_sec.allowed_hosts` and `allowed_origins` to prevent 421 "Invalid Host header" errors under mcp 2.3.0 exact match semantics.
+## Active Milestone: M3 (Console, MCP & Sponsor Artifacts) — Wed Oct 28 – Fri Oct 30
+- **Goal**: Live operator console, MCP client verified end-to-end, Postman collection, hosted Render instance with verified webhooks. End of M3: record the rough-cut video.
+
+### Acceptance Criteria
+- [ ] M3.1 SSE stream: `GET /api/v1/events` emits payout-request, task, and agent changes (including `RECEIVED` -> decision); the console switches from 2s polling to SSE, with polling as fallback on disconnect.
+- [ ] M3.2 Console:
+  - Payout-requests grid with status and reason-code chips, risk badge, and an "in review" state for `RECEIVED`
+  - Approve/reject buttons that show the deliverables and LLM reasoning before confirming
+  - Agents grid with hourly burn against the cap and quarantine status (with release action); task list
+  - Permanent "MOCK MODE" banner whenever `MOCK_PAYPAL` or `MOCK_LLM` is on (ARCH §6.6; README already promises it)
+- [ ] M3.3 MCP client verification: an MCP-capable client (Claude Desktop or MCP Inspector) runs `list_my_tasks` -> `submit_task_payout` (returns `RECEIVED`) -> polls `get_payout_status` to the Gate 2 decision -> `PAID`, against the local server. Record the transcript.
+- [ ] M3.4 Postman: `docs/postman/PayAgent.postman_collection.json` + environment; folders Setup -> Happy path -> Over budget -> Replay -> Injection -> HITL approve -> Status. Requests that submit payouts expect 202 and poll status. Runs green with the collection runner.
+- [ ] M3.5 Render deploy:
+  - External persistent Postgres via `DATABASE_URL`; `--workers 1` (the Gate 2 sweeper assumes a single process)
+  - `PUBLIC_HOST` set and present in the MCP `allowed_hosts`/`allowed_origins` (avoids 421 "Invalid Host header" under mcp 2.3.0 exact matching)
+  - Register `https://<PUBLIC_HOST>/api/v1/webhooks/paypal` as the sandbox webhook, then set `PAYPAL_WEBHOOK_ID`
+  - Free-tier sleep: warm the instance before recording
+- [ ] M3.6 Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
+- [ ] M3.7 Webhook processing order: the event is committed as `verified` before the state transition; if the transition fails, PayPal's retry is dropped as a duplicate. Mark processed only after the transition commits.
+- [ ] M3.8 Demo-agent polish (found in the M2 rehearsal):
+  - Happy path: keep polling through `SUBMITTED` until a terminal status, so the run shows `PAID` and the batch ID instead of `SUBMITTED / batch None`
+  - Escalate scenario: Gemini judged its deliverables weak (`PROOF_DOUBTFUL`, confidence 0.30) on top of `ABOVE_AUTO_LIMIT`, which records a circuit-breaker incident. One `--scenario all` run records 2 incidents (tamper + escalate) for `agent-code-reviewer-01`, so a second run within 10 minutes quarantines the demo agent. Make the escalate deliverables substantive so only `ABOVE_AUTO_LIMIT` fires, and run `python -m src.seed --reset` before each take.
+
+### Done When
+- A verified real PayPal webhook moves a request on the hosted instance
+- The MCP client completes a payout request end-to-end
+- The Postman collection runs green
+- 37+ tests green; rough-cut video recorded
+
+### Known Limitation (accepted, not M3 scope)
+- Two submissions at the same instant can occasionally return a SQLite 500 (WAL snapshot conflict). Fails safe: nothing is paid. Expected not to occur on Postgres (row locks re-check the conditional update), but untested.
 
 ### Review Gate Instructions (for Auditor)
 - Scope check: Diff against `main` / previous commit only.
