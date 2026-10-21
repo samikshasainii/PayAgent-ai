@@ -148,16 +148,6 @@ class TransitionResult:
         self.request = request
         self.won = won
 
-    def __bool__(self) -> bool:
-        return self.won
-
-    def __iter__(self):
-        yield self.request
-        yield self.won
-
-    def __getattr__(self, name):
-        return getattr(self.request, name)
-
     def __repr__(self):
         return f"<TransitionResult request={self.request.payout_request_id} status={self.request.status} won={self.won}>"
 
