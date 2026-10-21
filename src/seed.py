@@ -12,7 +12,7 @@ from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel, PayoutItemModel
 from src.models.budget import BudgetWindowModel
 from src.models.incident import AgentIncidentModel
-from src.schemas.enums import AgentStatus, TaskStatus
+from src.schemas.enums import AgentStatus, TaskStatus, PayoutRequestStatus
 from src.services.auth import hash_api_key
 
 def utc_now() -> datetime:
@@ -38,6 +38,28 @@ async def seed_database(reset: bool = False):
             print("Resetting existing demo tasks, payout requests, and circuit-breaker incidents...")
             demo_task_ids = ["task-pr-audit-101", "task-high-value-102", "task-dataset-curation-103"]
             demo_agent_ids = list(demo_agents_keys.keys())
+
+            # Auditor safety guard: refuse reset if non-final requests exist outside mock mode
+            if not settings.MOCK_PAYPAL:
+                terminal_states = {
+                    PayoutRequestStatus.PAID,
+                    PayoutRequestStatus.FAILED,
+                    PayoutRequestStatus.POLICY_REJECTED,
+                    PayoutRequestStatus.HUMAN_REJECTED,
+                    PayoutRequestStatus.CANCELED,
+                    PayoutRequestStatus.RETURNED,
+                }
+                stmt_non_final = select(PayoutRequestModel).where(
+                    PayoutRequestModel.task_id.in_(demo_task_ids),
+                    PayoutRequestModel.status.not_in(terminal_states)
+                )
+                non_final_reqs = (await db.execute(stmt_non_final)).scalars().all()
+                if non_final_reqs:
+                    active_ids = [f"{r.payout_request_id} ({r.status.value})" for r in non_final_reqs]
+                    raise RuntimeError(
+                        f"Refusing to --reset database outside mock mode: active non-final payout request(s) exist: {', '.join(active_ids)}. "
+                        "Wait for poller reconciliation or cancel unclaimed items before resetting."
+                    )
 
             # Delete existing payout requests for demo tasks
             stmt_reqs = select(PayoutRequestModel).where(PayoutRequestModel.task_id.in_(demo_task_ids))
@@ -152,6 +174,7 @@ async def seed_database(reset: bool = False):
             print(f"Agent: {aid} | Key: {key}")
     else:
         print("Production environment active: Credentials generated securely without console logging.")
+        print("Note: In production, register agents via POST /api/v1/agents to retrieve single-use API keys.")
     print(f"Sandbox Recipient Email: {recipient}")
 
 if __name__ == "__main__":

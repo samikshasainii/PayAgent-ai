@@ -1,0 +1,14 @@
+{
+  "id": "weak_05_lorem_ipsum",
+  "category": "weak",
+  "task_title": "OpenAPI Documentation Audit",
+  "acceptance_criteria": "All API endpoints documented with request/response schemas and HTTP 4xx/5xx status codes",
+  "required_deliverables": [
+    "spec_diff",
+    "audit_notes"
+  ],
+  "deliverables": {
+    "spec_diff": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    "audit_notes": "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+  }
+}

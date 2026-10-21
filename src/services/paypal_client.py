@@ -284,4 +284,49 @@ class PayPalClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def verify_webhook_signature(
+        self,
+        headers: Dict[str, str],
+        body: Dict[str, Any]
+    ) -> bool:
+        """
+        Verifies PayPal webhook signature via PayPal's verify-webhook-signature endpoint (SHA256withRSA).
+        """
+        if self.is_mock or not settings.PAYPAL_WEBHOOK_ID:
+            return True
+
+        # Normalize header keys to lowercase
+        norm_headers = {k.lower(): v for k, v in headers.items()}
+        auth_algo = norm_headers.get("paypal-auth-algo")
+        cert_url = norm_headers.get("paypal-cert-url")
+        trans_id = norm_headers.get("paypal-transmission-id")
+        trans_sig = norm_headers.get("paypal-transmission-sig")
+        trans_time = norm_headers.get("paypal-transmission-time")
+
+        if not all([auth_algo, cert_url, trans_id, trans_sig, trans_time]):
+            return False
+
+        token = await self.get_access_token()
+        verify_payload = {
+            "auth_algo": auth_algo,
+            "cert_url": cert_url,
+            "transmission_id": trans_id,
+            "transmission_sig": trans_sig,
+            "transmission_time": trans_time,
+            "webhook_id": settings.PAYPAL_WEBHOOK_ID,
+            "webhook_event": body
+        }
+
+        client = self.get_http_client()
+        resp = await client.post(
+            f"{self.base_url}/v1/notifications/verify-webhook-signature",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=verify_payload,
+            timeout=30.0
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("verification_status") == "SUCCESS"
+        return False
+
 paypal_client = PayPalClient()

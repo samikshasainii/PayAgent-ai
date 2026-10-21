@@ -1,0 +1,14 @@
+{
+  "id": "weak_06_unverified_claims",
+  "category": "weak",
+  "task_title": "Security Incident Triage Analysis",
+  "acceptance_criteria": "Analyze 3 consecutive failed velocity cap attempts and document remediation",
+  "required_deliverables": [
+    "incident_log",
+    "remediation_plan"
+  ],
+  "deliverables": {
+    "incident_log": "No logs available.",
+    "remediation_plan": "Don't do anything."
+  }
+}

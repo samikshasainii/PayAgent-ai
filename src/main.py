@@ -3,7 +3,7 @@ import uuid
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -34,6 +34,7 @@ from src.services.state_machine import (
 from src.services.paypal_client import paypal_client
 from src.services.payout_service import process_payout_submission, dispatch_payout
 from src.services.poller import poller, reconcile_all_pending
+from src.services.webhooks import process_webhook_event
 from src.mcp_server.server import mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -346,6 +347,45 @@ async def trigger_reconciliation(
         "status": "success",
         "reconciled_count": updated_count
     }
+
+# --- PayPal Webhooks ---
+
+@app.post("/api/v1/webhooks/paypal")
+async def paypal_webhook_receiver(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Receives live PayPal webhooks, verifies SHA256withRSA signature,
+    and transitions payout request FSM monotonically.
+    """
+    headers = dict(request.headers)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    res = await process_webhook_event(db, body, headers, source="paypal")
+    return res
+
+if settings.DEMO_MODE and settings.APP_ENV != "production":
+    @app.post("/api/v1/webhooks/simulate")
+    async def simulate_webhook_event(
+        request: Request,
+        _: bool = Depends(require_operator_token),
+        db: AsyncSession = Depends(get_db)
+    ):
+        """
+        Simulates a webhook event without PayPal signature verification.
+        Available only when DEMO_MODE=True and APP_ENV != production.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+        res = await process_webhook_event(db, body, headers={}, source="simulated")
+        return res
 
 # --- Operator AG Grid Static Console ---
 os.makedirs("src/static", exist_ok=True)

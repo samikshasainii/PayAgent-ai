@@ -1,0 +1,14 @@
+{
+  "id": "weak_02_placeholder",
+  "category": "weak",
+  "task_title": "Annotate 500 Multimodal Payout Samples",
+  "acceptance_criteria": "Gold-standard labels verified with inter-annotator agreement > 0.90",
+  "required_deliverables": [
+    "dataset_url",
+    "validation_metrics"
+  ],
+  "deliverables": {
+    "dataset_url": "TODO: upload dataset later",
+    "validation_metrics": "placeholder metrics - work in progress"
+  }
+}

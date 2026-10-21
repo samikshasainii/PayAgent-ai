@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import httpx
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,62 +45,15 @@ def extract_payout_batch_id_from_error(error_text: str) -> Optional[str]:
 # In-memory tracking for P4 unclaimed poll backoff
 _unclaimed_poll_timestamps: Dict[str, float] = {}
 
-async def reconcile_request(
+async def apply_batch_reconciliation(
     db: AsyncSession,
-    req: PayoutRequestModel
+    req: PayoutRequestModel,
+    batch_data: Dict[str, Any]
 ) -> bool:
     """
-    Reconciles a single payout request against PayPal.
-    Implements P3: recovers stuck SUBMITTED rows without payout_batch_id after 60s grace period.
+    Applies PayPal batch/item status updates into the local database inside an active transaction.
     Returns True if a status transition occurred, False otherwise.
     """
-    # P3: Handle stuck SUBMITTED row with missing payout_batch_id
-    if req.status == PayoutRequestStatus.SUBMITTED and not req.payout_batch_id:
-        age_seconds = (utc_now() - req.created_at).total_seconds() if req.created_at else 0
-        if age_seconds < 60:
-            # Within 60s grace period, wait for in-flight dispatch to finish or record
-            return False
-
-        # Grace period elapsed: re-POST with stored IDs to recover batch ID
-        stmt = select(TaskModel).where(TaskModel.task_id == req.task_id)
-        task = (await db.execute(stmt)).scalar_one_or_none()
-        if not task:
-            logger.warning(f"Cannot recover stuck request {req.payout_request_id}: task {req.task_id} not found")
-            return False
-
-        try:
-            pp_resp = await paypal_client.create_single_payout(
-                sender_batch_id=req.sender_batch_id,
-                paypal_request_id=req.paypal_request_id,
-                recipient_email=task.allowed_recipient,
-                amount=req.amount,
-                currency=task.currency,
-                note=f"Task payout for {task.title}"
-            )
-            req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
-            await db.flush()
-        except httpx.HTTPStatusError as exc:
-            # Check if PayPal answered duplicate sender_batch_id
-            batch_id = extract_payout_batch_id_from_error(exc.response.text)
-            if batch_id:
-                req.payout_batch_id = batch_id
-                await db.flush()
-            else:
-                logger.warning(f"Failed to recover stuck request {req.payout_request_id}: {exc}")
-                return False
-        except Exception as exc:
-            logger.warning(f"Error attempting recovery of stuck request {req.payout_request_id}: {exc}")
-            return False
-
-    if not req.payout_batch_id:
-        return False
-
-    try:
-        batch_data = await paypal_client.get_payout_batch(req.payout_batch_id)
-    except Exception as exc:
-        logger.warning(f"Poller failed to fetch batch {req.payout_batch_id}: {exc}")
-        return False
-
     items = batch_data.get("items", [])
     if not items:
         # If no item list yet (batch in PROCESSING state), wait for next cycle
@@ -157,11 +110,66 @@ async def reconcile_request(
 
     return transitioned
 
+async def reconcile_request(
+    db: AsyncSession,
+    req: PayoutRequestModel
+) -> bool:
+    """
+    Reconciles a single payout request against PayPal.
+    Implements P3: recovers stuck SUBMITTED rows without payout_batch_id after 60s grace period.
+    Returns True if a status transition occurred, False otherwise.
+    """
+    # P3: Handle stuck SUBMITTED row with missing payout_batch_id
+    if req.status == PayoutRequestStatus.SUBMITTED and not req.payout_batch_id:
+        age_seconds = (utc_now() - req.created_at).total_seconds() if req.created_at else 0
+        if age_seconds < 60:
+            return False
+
+        stmt = select(TaskModel).where(TaskModel.task_id == req.task_id)
+        task = (await db.execute(stmt)).scalar_one_or_none()
+        if not task:
+            logger.warning(f"Cannot recover stuck request {req.payout_request_id}: task {req.task_id} not found")
+            return False
+
+        try:
+            pp_resp = await paypal_client.create_single_payout(
+                sender_batch_id=req.sender_batch_id,
+                paypal_request_id=req.paypal_request_id,
+                recipient_email=task.allowed_recipient,
+                amount=req.amount,
+                currency=task.currency,
+                note=f"Task payout for {task.title}"
+            )
+            req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
+            await db.flush()
+        except httpx.HTTPStatusError as exc:
+            batch_id = extract_payout_batch_id_from_error(exc.response.text)
+            if batch_id:
+                req.payout_batch_id = batch_id
+                await db.flush()
+            else:
+                logger.warning(f"Failed to recover stuck request {req.payout_request_id}: {exc}")
+                return False
+        except Exception as exc:
+            logger.warning(f"Error attempting recovery of stuck request {req.payout_request_id}: {exc}")
+            return False
+
+    if not req.payout_batch_id:
+        return False
+
+    try:
+        batch_data = await paypal_client.get_payout_batch(req.payout_batch_id)
+    except Exception as exc:
+        logger.warning(f"Poller failed to fetch batch {req.payout_batch_id}: {exc}")
+        return False
+
+    return await apply_batch_reconciliation(db, req, batch_data)
+
 async def reconcile_all_pending(db: AsyncSession) -> int:
     """
     Finds all requests in SUBMITTED or UNCLAIMED status and reconciles against PayPal.
-    Implements P2: isolates each row with its own savepoint and try/except.
-    Implements P4: applies 1-hour backoff to UNCLAIMED requests older than 10 minutes.
+    Milestone 2 optimization: Fetches batch data from PayPal outside any DB transaction,
+    then opens a short savepoint write transaction to apply status and item updates.
     """
     now = utc_now()
     stmt = (
@@ -189,10 +197,46 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
                     continue  # Hourly sweep backoff for long-running unclaimed items
                 _unclaimed_poll_timestamps[req.payout_request_id] = now_ts
 
-        # P2: Isolate each row with a savepoint
+        # P3: Handle stuck SUBMITTED row with missing payout_batch_id
+        if req.status == PayoutRequestStatus.SUBMITTED and not req.payout_batch_id:
+            age_seconds = (now - req.created_at).total_seconds() if req.created_at else 0
+            if age_seconds >= 60:
+                stmt_task = select(TaskModel).where(TaskModel.task_id == req.task_id)
+                task = (await db.execute(stmt_task)).scalar_one_or_none()
+                if task:
+                    try:
+                        pp_resp = await paypal_client.create_single_payout(
+                            sender_batch_id=req.sender_batch_id,
+                            paypal_request_id=req.paypal_request_id,
+                            recipient_email=task.allowed_recipient,
+                            amount=req.amount,
+                            currency=task.currency,
+                            note=f"Task payout for {task.title}"
+                        )
+                        req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
+                        await db.commit()
+                    except httpx.HTTPStatusError as exc:
+                        batch_id = extract_payout_batch_id_from_error(exc.response.text)
+                        if batch_id:
+                            req.payout_batch_id = batch_id
+                            await db.commit()
+                    except Exception as exc:
+                        logger.warning(f"Error attempting recovery of stuck request {req.payout_request_id}: {exc}")
+
+        if not req.payout_batch_id:
+            continue
+
+        # M2: Fetch from PayPal FIRST, outside any DB transaction or savepoint
+        try:
+            batch_data = await paypal_client.get_payout_batch(req.payout_batch_id)
+        except Exception as exc:
+            logger.error(f"Poller failed to fetch batch {req.payout_batch_id}: {exc}", exc_info=True)
+            continue
+
+        # Open short write transaction only for DB mutations
         try:
             async with db.begin_nested():
-                if await reconcile_request(db, req):
+                if await apply_batch_reconciliation(db, req, batch_data):
                     updated_count += 1
             await db.commit()
         except Exception as exc:

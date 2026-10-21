@@ -1,0 +1,14 @@
+{
+  "id": "genuine_05_documentation",
+  "category": "genuine",
+  "task_title": "OpenAPI Documentation Audit",
+  "acceptance_criteria": "All API endpoints documented with request/response schemas and HTTP 4xx/5xx status codes",
+  "required_deliverables": [
+    "spec_diff",
+    "audit_notes"
+  ],
+  "deliverables": {
+    "spec_diff": "Updated openapi.json diff: added schemas for PayoutRequestIn, TaskOut, and 409 conflict error responses.",
+    "audit_notes": "All 14 endpoints reviewed. Validated Pydantic models with extra='forbid' constraints on incoming payloads."
+  }
+}

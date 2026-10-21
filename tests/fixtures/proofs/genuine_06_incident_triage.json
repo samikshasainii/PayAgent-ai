@@ -1,0 +1,14 @@
+{
+  "id": "genuine_06_incident_triage",
+  "category": "genuine",
+  "task_title": "Security Incident Triage Analysis",
+  "acceptance_criteria": "Analyze 3 consecutive failed velocity cap attempts and document remediation",
+  "required_deliverables": [
+    "incident_log",
+    "remediation_plan"
+  ],
+  "deliverables": {
+    "incident_log": "Incident INC-882: Agent attempted $75 request exceeding hourly velocity budget. Circuit breaker recorded hold and prevented double spend.",
+    "remediation_plan": "Recommended splitting payouts across hourly windows and notifying operator for budget cap adjustment."
+  }
+}

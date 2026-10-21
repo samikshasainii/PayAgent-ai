@@ -1,0 +1,14 @@
+{
+  "id": "genuine_04_benchmark_load",
+  "category": "genuine",
+  "task_title": "Database Concurrency Benchmarks",
+  "acceptance_criteria": "Execute 200 concurrent write transactions under SQLite WAL mode without deadlocks",
+  "required_deliverables": [
+    "benchmark_report",
+    "metrics_summary"
+  ],
+  "deliverables": {
+    "benchmark_report": "Benchmarked SQLite WAL mode with 200 concurrent tasks over 60 seconds. Mean latency 4.2ms, p99 latency 14.8ms. Zero lock timeouts or busy errors recorded.",
+    "metrics_summary": "Throughput: 1,420 txn/sec. Zero deadlocks. PRAGMA busy_timeout=5000 verified active."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "weak_01_empty_vague",
+  "category": "weak",
+  "task_title": "PR #42 Security Audit",
+  "acceptance_criteria": "Verify OWASP Top 10 security review and checklist completed",
+  "required_deliverables": [
+    "review_summary",
+    "security_checklist"
+  ],
+  "deliverables": {
+    "review_summary": "Looks good to me, LGTM.",
+    "security_checklist": "Checked everything."
+  }
+}

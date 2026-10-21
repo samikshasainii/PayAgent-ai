@@ -7,14 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel, PayoutItemModel
-from src.schemas.enums import PayoutRequestStatus
+from src.schemas.enums import PayoutRequestStatus, DecisionReason
 from src.schemas.payout import PayoutRequestIn
 from src.schemas.llm import LLMVerdict
 from src.services.guardian import (
     compute_artifact_sha256,
     evaluate_gate1,
     evaluate_gate2_and_decision,
+    record_incident_and_check_circuit_breaker,
 )
+from src.services.proof_review import review_proof_of_task
 from src.services.state_machine import transition_payout_request_status
 from src.services.paypal_client import paypal_client
 from src.services.poller import extract_payout_batch_id_from_error
@@ -174,13 +176,23 @@ async def process_payout_submission(
         await db.refresh(rejected_req)
         return False, http_code, reason_code, rejected_req
 
-    # Gate 2 Evaluation
-    mock_verdict = LLMVerdict(
-        passed=True,
-        confidence=0.95,
-        reasoning="Acceptance criteria verified in Milestone 1."
+    # Gate 2 Evaluation: review deliverables using LLM guardian
+    llm_verdict = await review_proof_of_task(
+        task_title=task.title,
+        acceptance_criteria=task.acceptance_criteria,
+        required_deliverables=task.required_deliverables,
+        deliverables=request_in.deliverables
     )
-    target_status, reasons, risk_score = evaluate_gate2_and_decision(request_in.amount, mock_verdict)
+    target_status, reasons, risk_score = evaluate_gate2_and_decision(request_in.amount, llm_verdict)
+
+    # ARCHITECTURE.md §5.5: Record incident if Gate 2 detected PROOF_DOUBTFUL
+    if DecisionReason.PROOF_DOUBTFUL.value in reasons:
+        await record_incident_and_check_circuit_breaker(
+            db=db,
+            agent=agent,
+            reason=DecisionReason.PROOF_DOUBTFUL.value,
+            payout_request_id=payout_request_id
+        )
 
     payout_req = PayoutRequestModel(
         payout_request_id=payout_request_id,
@@ -191,7 +203,7 @@ async def process_payout_submission(
         artifact_sha256=artifact_sha256,
         status=target_status,
         decision_reasons=reasons,
-        llm_verdict=mock_verdict.model_dump(),
+        llm_verdict=llm_verdict.model_dump() if llm_verdict else None,
         risk_score=risk_score,
         sender_batch_id=sender_batch_id,
         paypal_request_id=paypal_request_id,

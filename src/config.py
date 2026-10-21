@@ -46,9 +46,12 @@ class Settings(BaseSettings):
     LLM_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gpt-4o-mini"
     LLM_TIMEOUT_SECONDS: int = 10
+    MOCK_LLM: bool = False
 
     @model_validator(mode="after")
     def align_settings(self):
+        if self.APP_ENV == "test" and "MOCK_LLM" not in os.environ:
+            self.MOCK_LLM = True
         # Sync APP_PORT / PORT
         if self.APP_PORT != 8000 and self.PORT == 8000:
             self.PORT = self.APP_PORT

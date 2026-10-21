@@ -1,5 +1,6 @@
 import os
 from typing import AsyncGenerator
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from src.config import settings
@@ -26,6 +27,16 @@ engine = create_async_engine(
     echo=settings.DEBUG and False,  # Keep clean in production
     future=True,
 )
+
+# Milestone 2 SQLite concurrency hardening:
+# Configure WAL journal mode and busy_timeout to prevent 'database is locked' errors during PayPal network wait
+if "sqlite" in DATABASE_URL:
+    @event.listens_for(engine.sync_engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 async_session_factory = async_sessionmaker(
     bind=engine,
