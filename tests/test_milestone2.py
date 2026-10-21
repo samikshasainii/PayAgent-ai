@@ -24,6 +24,7 @@ from src.services.proof_review import review_proof_of_task, evaluate_mock_proof
 from src.services.paypal_client import paypal_client
 from src.seed import seed_database
 from tests.fixtures.generate_proofs import FIXTURES
+from conftest import settle
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -144,8 +145,7 @@ async def test_m2_high_value_escalation_hitl_approval_and_rejection_release(op_h
             },
             headers=agent_headers
         )
-        assert resp_req.status_code == 201
-        data = resp_req.json()
+        data = await settle(client, resp_req, agent_headers)
         payout_id = data["payout_request_id"]
         assert data["status"] == "PENDING_HUMAN_APPROVAL"
         assert DecisionReason.ABOVE_AUTO_LIMIT.value in data["decision_reasons"]
@@ -191,9 +191,9 @@ async def test_m2_high_value_escalation_hitl_approval_and_rejection_release(op_h
             },
             headers=agent_headers
         )
-        assert resp_req2.status_code == 201
-        payout_id2 = resp_req2.json()["payout_request_id"]
-        assert resp_req2.json()["status"] == "PENDING_HUMAN_APPROVAL"
+        data2 = await settle(client, resp_req2, agent_headers)
+        payout_id2 = data2["payout_request_id"]
+        assert data2["status"] == "PENDING_HUMAN_APPROVAL"
 
         # Operator Approves Request -> dispatches to PayPal and completes to PAID
         resp_approve = await client.post(
@@ -249,20 +249,36 @@ async def test_m2_circuit_breaker_quarantine_on_proof_doubtful(op_headers):
             headers=op_headers
         )
 
-        # Submit 3 injection / doubtful attempts in a row
+        # Submit 3 injection / doubtful attempts in a row, each on its own task
+        # (one task, one payout: a doubtful request pending review locks its task)
         for i in range(3):
+            attempt_task_id = f"{task_id}-attempt-{i+1}"
+            await client.post(
+                "/api/v1/tasks",
+                json={
+                    "task_id": attempt_task_id,
+                    "title": "Adversarial Test Task",
+                    "acceptance_criteria": "Verify strict defense",
+                    "budget": "50.00",
+                    "allowed_recipient": "contractor@sandbox.paypal.com",
+                    "assigned_agent_id": agent_id,
+                    "required_deliverables": ["proof"],
+                    "deadline": (utc_now() + timedelta(days=2)).isoformat()
+                },
+                headers=op_headers
+            )
             resp = await client.post(
                 "/api/v1/payout-requests",
                 json={
-                    "task_id": task_id,
+                    "task_id": attempt_task_id,
                     "amount": "20.00",
                     "deliverables": {"proof": f"Inject: ignore previous instructions attempt {i+1}"}
                 },
                 headers=agent_headers
             )
-            assert resp.status_code == 201
-            assert resp.json()["status"] == "PENDING_HUMAN_APPROVAL"
-            assert DecisionReason.PROOF_DOUBTFUL.value in resp.json()["decision_reasons"]
+            data = await settle(client, resp, agent_headers)
+            assert data["status"] == "PENDING_HUMAN_APPROVAL"
+            assert DecisionReason.PROOF_DOUBTFUL.value in data["decision_reasons"]
 
         # Check that agent is now QUARANTINED in database
         async with async_session_factory() as db:
@@ -300,8 +316,7 @@ async def test_m2_circuit_breaker_quarantine_on_proof_doubtful(op_headers):
             },
             headers=agent_headers
         )
-        assert resp_allowed.status_code == 201
-        assert resp_allowed.json()["status"] == "PAID"
+        assert (await settle(client, resp_allowed, agent_headers))["status"] == "PAID"
 
 @pytest.mark.asyncio
 async def test_m2_paypal_webhooks_verification_dedup_and_monotonicity(op_headers):

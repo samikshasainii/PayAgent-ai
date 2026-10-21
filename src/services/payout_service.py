@@ -2,21 +2,17 @@ import uuid
 from decimal import Decimal
 from typing import Tuple, Dict, Any, Optional
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel, PayoutItemModel
-from src.schemas.enums import PayoutRequestStatus, DecisionReason
+from src.schemas.enums import PayoutRequestStatus, DecisionReason, TaskStatus
 from src.schemas.payout import PayoutRequestIn
-from src.schemas.llm import LLMVerdict
 from src.services.guardian import (
     compute_artifact_sha256,
     evaluate_gate1,
-    evaluate_gate2_and_decision,
-    record_incident_and_check_circuit_breaker,
 )
-from src.services.proof_review import review_proof_of_task
 from src.services.state_machine import transition_payout_request_status
 from src.services.paypal_client import paypal_client
 from src.services.poller import extract_payout_batch_id_from_error
@@ -138,8 +134,11 @@ async def process_payout_submission(
 ) -> Tuple[bool, int, str, PayoutRequestModel]:
     """
     Unified submission path shared across REST and MCP interfaces.
+    Runs Gate 1 synchronously. On pass, commits the request as RECEIVED (budget reserved, task locked)
+    and schedules the Gate 2 LLM review in the background (src/services/gate2_reviewer.py).
     Returns: (passed: bool, http_status_code: int, message: str, payout_model: PayoutRequestModel)
     """
+    agent_id = agent.agent_id
     artifact_sha256 = compute_artifact_sha256(request_in.deliverables)
 
     # Saved-ID pattern: generated once per request inception according to ARCHITECTURE.md §6.1
@@ -156,11 +155,26 @@ async def process_payout_submission(
         artifact_sha256=artifact_sha256
     )
 
+    if gate1_passed:
+        # Lock the task (Task FSM: OPEN -> PAYOUT_IN_PROGRESS) so a second submission for the same
+        # task cannot pass Gate 1 while this one is in review or awaiting a human: one task, one payout.
+        lock_res = await db.execute(
+            update(TaskModel)
+            .where(TaskModel.task_id == request_in.task_id, TaskModel.status == TaskStatus.OPEN)
+            .values(status=TaskStatus.PAYOUT_IN_PROGRESS)
+        )
+        if lock_res.rowcount == 0:
+            # Lost the race to another submission: undo this request's budget reservation
+            await db.rollback()
+            gate1_passed, http_code, reason_code = False, 403, DecisionReason.TASK_NOT_ASSIGNED.value
+        else:
+            task.status = TaskStatus.PAYOUT_IN_PROGRESS
+
     if not gate1_passed:
         rejected_req = PayoutRequestModel(
             payout_request_id=payout_request_id,
             task_id=request_in.task_id,
-            agent_id=agent.agent_id,
+            agent_id=agent_id,
             amount=request_in.amount,
             deliverables=request_in.deliverables,
             artifact_sha256=artifact_sha256,
@@ -176,46 +190,27 @@ async def process_payout_submission(
         await db.refresh(rejected_req)
         return False, http_code, reason_code, rejected_req
 
-    # Gate 2 Evaluation: review deliverables using LLM guardian
-    llm_verdict = await review_proof_of_task(
-        task_title=task.title,
-        acceptance_criteria=task.acceptance_criteria,
-        required_deliverables=task.required_deliverables,
-        deliverables=request_in.deliverables
-    )
-    target_status, reasons, risk_score = evaluate_gate2_and_decision(request_in.amount, llm_verdict)
-
-    # ARCHITECTURE.md §5.5: Record incident if Gate 2 detected PROOF_DOUBTFUL
-    if DecisionReason.PROOF_DOUBTFUL.value in reasons:
-        await record_incident_and_check_circuit_breaker(
-            db=db,
-            agent=agent,
-            reason=DecisionReason.PROOF_DOUBTFUL.value,
-            payout_request_id=payout_request_id
-        )
-
+    # Gate 1 passed: persist as RECEIVED and hand off to the asynchronous Gate 2 reviewer
     payout_req = PayoutRequestModel(
         payout_request_id=payout_request_id,
         task_id=request_in.task_id,
-        agent_id=agent.agent_id,
+        agent_id=agent_id,
         amount=request_in.amount,
         deliverables=request_in.deliverables,
         artifact_sha256=artifact_sha256,
-        status=target_status,
-        decision_reasons=reasons,
-        llm_verdict=llm_verdict.model_dump() if llm_verdict else None,
-        risk_score=risk_score,
+        status=PayoutRequestStatus.RECEIVED,
+        decision_reasons=[],
         sender_batch_id=sender_batch_id,
         paypal_request_id=paypal_request_id,
         window_start=hour_bucket,
-        decided_by="guardian_gate2"
+        decided_by="guardian_gate1"
     )
     db.add(payout_req)
     await db.commit()
-
-    # If auto-approved, dispatch immediately to PayPal
-    if target_status == PayoutRequestStatus.APPROVED:
-        await dispatch_payout(db, payout_req, task)
-
     await db.refresh(payout_req)
-    return True, 201, "OK", payout_req
+
+    # Local import: gate2_reviewer imports dispatch_payout from this module
+    from src.services.gate2_reviewer import schedule_review
+    schedule_review(payout_request_id)
+
+    return True, 202, "RECEIVED", payout_req

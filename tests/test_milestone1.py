@@ -29,6 +29,8 @@ from src.services.state_machine import (
 )
 from src.services.paypal_client import paypal_client
 from src.mcp_server.server import list_my_tasks, submit_task_payout, get_payout_status
+from src.services import gate2_reviewer
+from conftest import settle
 
 
 # --- Test 1: Currency Precision & Validation ---
@@ -146,8 +148,7 @@ async def test_saved_id_pattern_and_replay_rejection():
             json={"task_id": task_id, "amount": "40.00", "deliverables": deliverables},
             headers=agent_headers
         )
-        assert r3.status_code == 201
-        payout_data = r3.json()
+        payout_data = await settle(client, r3, agent_headers)
         assert payout_data["status"] == "PAID"
         payout_req_id = payout_data["payout_request_id"]
 
@@ -222,9 +223,9 @@ async def test_decision_table_boundaries():
             json={"task_id": task_50, "amount": "50.00", "deliverables": {"output": "result-50"}},
             headers=agent_headers
         )
-        assert resp_50.status_code == 201
-        assert resp_50.json()["status"] == "PAID"
-        assert "AUTO_APPROVED" in resp_50.json()["decision_reasons"]
+        data_50 = await settle(client, resp_50, agent_headers)
+        assert data_50["status"] == "PAID"
+        assert "AUTO_APPROVED" in data_50["decision_reasons"]
 
         # Case B: Amount == 50.01 (Strictly greater than $50.00 -> PENDING_HUMAN_APPROVAL)
         task_51 = f"task-51-{int(time.time() * 1000)}"
@@ -248,12 +249,12 @@ async def test_decision_table_boundaries():
             json={"task_id": task_51, "amount": "50.01", "deliverables": {"output": "result-51"}},
             headers=agent_headers
         )
-        assert resp_51.status_code == 201
-        assert resp_51.json()["status"] == "PENDING_HUMAN_APPROVAL"
-        assert "ABOVE_AUTO_LIMIT" in resp_51.json()["decision_reasons"]
+        data_51 = await settle(client, resp_51, agent_headers)
+        assert data_51["status"] == "PENDING_HUMAN_APPROVAL"
+        assert "ABOVE_AUTO_LIMIT" in data_51["decision_reasons"]
 
         # Case C: Operator Approves the escalated request
-        req_id = resp_51.json()["payout_request_id"]
+        req_id = data_51["payout_request_id"]
         approve_resp = await client.post(
             f"/api/v1/payout-requests/{req_id}/approve",
             headers=op_headers
@@ -424,8 +425,9 @@ async def test_cancellation_unclaimed_and_paypal_guards():
             json={"task_id": task_id, "amount": "20.00", "deliverables": {"output": "result"}},
             headers=agent_headers
         )
-        req_id = payout_resp.json()["payout_request_id"]
-        assert payout_resp.json()["status"] == "PAID"
+        payout_data = await settle(client, payout_resp, agent_headers)
+        req_id = payout_data["payout_request_id"]
+        assert payout_data["status"] == "PAID"
 
         # Attempting to cancel a PAID request MUST raise HTTP 409 Conflict
         cancel_resp = await client.post(
@@ -485,9 +487,10 @@ async def test_mcp_guardian_tools_and_http_transport():
         deliverables={"artifact": "https://github.com/org/repo/pull/1"}
     )
     submit_res = json.loads(submit_json)
-    assert submit_res["status"] == "PAID"
+    assert submit_res["status"] == "RECEIVED"
     assert "payout_request_id" in submit_res
     payout_req_id = submit_res["payout_request_id"]
+    await gate2_reviewer.drain()
 
     # 4. Test get_payout_status tool
     status_json = await get_payout_status(

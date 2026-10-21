@@ -95,11 +95,13 @@ sequenceDiagram
     Op->>G: POST /api/v1/tasks (budget, allowed_recipient, required_deliverables, assigned_agent_id)
     Ag->>G: POST /api/v1/payout-requests (task_id, amount, deliverables) [Bearer key]
     G->>DB: Insert request (payout_request_id = UUIDv4, sender_batch_id derived ONCE)
-    G->>G: Gate 1 (deterministic) + atomic budget reservation
+    G->>G: Gate 1 (deterministic) + atomic budget reservation + task lock
     alt Gate 1 fails
         G-->>Ag: 403/409/422/429 + reason code, status POLICY_REJECTED
     else Gate 1 passes
-        G->>G: Gate 2 LLM review (structured JSON)
+        G->>DB: RECEIVED (committed)
+        G-->>Ag: 202 RECEIVED (agent polls GET /payout-requests/{id})
+        G->>G: Gate 2 LLM review in background (structured JSON, §5.6)
         alt Decision = escalate
             G->>DB: PENDING_HUMAN_APPROVAL
             G-->>UI: SSE event
@@ -162,11 +164,12 @@ class LLMVerdict(BaseModel):             # the only shape Gate 2 may return
 
 ### 4.3 State Machines (three separate machines; do not merge)
 
-**Task:** `OPEN → PAYOUT_IN_PROGRESS → PAID` · `OPEN → CANCELLED` · a failed or rejected payout returns the task to `OPEN`.
+**Task:** `OPEN → PAYOUT_IN_PROGRESS → PAID` · `OPEN → CANCELLED` · a failed or rejected payout returns the task to `OPEN`. The task moves to `PAYOUT_IN_PROGRESS` when a request **passes Gate 1** (conditional `UPDATE … WHERE status = 'OPEN'`), so a task has at most one active payout request: a second submission gets Row 3 `TASK_NOT_ASSIGNED` until the first is rejected, fails, or is paid.
 
 **PayoutRequest:**
 ```
 RECEIVED ─┬─► POLICY_REJECTED                         (terminal, Gate 1)
+          │   (RECEIVED = Gate 1 passed, budget reserved, Gate 2 running in the background; §5.6)
           └─► REVIEWED ─┬─► APPROVED ──► SUBMITTED ─┬─► PAID        (terminal)
                         │                           ├─► UNCLAIMED ──► CANCELED (operator recall; terminal; reservation released)
                         │                           │                (recipient has no PayPal account; PayPal auto-returns after 30 days → RETURNED)
@@ -230,6 +233,14 @@ For `pr_url` deliverables: call `api.github.com` (the only allow-listed host) to
 ### 5.5 Circuit Breaker
 3 `agent_incidents` (Gate 1 rejections from rows 5–8, or `PROOF_DOUBTFUL`) within 10 minutes → agent `QUARANTINED`. Its `PENDING_HUMAN_APPROVAL` requests stay pending for operator review rather than being auto-rejected.
 
+### 5.6 Asynchronous Gate 2
+Free-tier LLM latency (10–45 s measured) is too long to hold an agent's HTTP or MCP call open, and too long to hold a SQLite write transaction. So:
+1. `POST /api/v1/payout-requests` (and MCP `submit_task_payout`) runs Gate 1 synchronously, commits the request as `RECEIVED` with its reservation and task lock, and returns **202**.
+2. A background reviewer (`src/services/gate2_reviewer.py`) calls the LLM with **no DB transaction open**, evaluates rows 9–12, and writes the decision with a single CAS `UPDATE … WHERE status = 'RECEIVED'` (a lost CAS means another reviewer already decided). Auto-approved requests are then dispatched as before (write-ahead `SUBMITTED`).
+3. If the agent was quarantined while its request was in review, a passing verdict escalates to `PENDING_HUMAN_APPROVAL` (`AGENT_QUARANTINED`) instead of paying (escalate-only).
+4. **Restart safety:** a sweeper (every 10 s, and on startup) re-schedules `RECEIVED` rows, and `APPROVED` rows that never reached PayPal, that no in-process review owns; a failed review is retried after `LLM_TIMEOUT_SECONDS + 30` s. Single process by design (`--workers 1`).
+5. Agents poll `GET /api/v1/payout-requests/{id}` (or MCP `get_payout_status`) until the status leaves `RECEIVED`.
+
 ---
 
 ## 6. Integrations
@@ -257,7 +268,7 @@ After `SUBMITTED`, poll `GET /v1/payments/payouts/{payout_batch_id}` every 5 s u
 ### 6.5 PayAgent MCP Server
 PayAgent exposes its own MCP server (streamable HTTP at `/mcp`, plus stdio for local agents), authenticated with the agent's API key:
 - `list_my_tasks()` → open tasks assigned to the calling agent
-- `submit_task_payout(task_id, amount, deliverables)` → same code path as REST
+- `submit_task_payout(task_id, amount, deliverables)` → same code path as REST; returns `RECEIVED` immediately (§5.6)
 - `get_payout_status(payout_request_id)`
 
 **Why not PayPal's MCP server / Agent Toolkit here?** The PayPal Agent Toolkit (invoices, orders, refunds, disputes, subscriptions, catalog, transaction reporting) has **no Payouts tool**. And handing agents PayPal tools directly would bypass the Guardian, which is the opposite of the product. Possible Toolkit uses are listed in §9 as stretch.
@@ -274,7 +285,7 @@ PayAgent exposes its own MCP server (streamable HTTP at `/mcp`, plus stdio for l
 | `POST /api/v1/tasks` · `GET /api/v1/tasks` | Operator | Create / list tasks |
 | `POST /api/v1/agents` | Operator | Register agent; returns API key **once** |
 | `POST /api/v1/agents/{id}/release` | Operator | Exit quarantine |
-| `POST /api/v1/payout-requests` | Agent | Request payment |
+| `POST /api/v1/payout-requests` | Agent | Request payment: Gate 1, then **202 `RECEIVED`**; Gate 2 runs in the background (§5.6) |
 | `GET /api/v1/payout-requests/{id}` | Agent / Operator | Status |
 | `POST /api/v1/payout-requests/{id}/approve` · `/reject` | Operator | HITL decision |
 | `POST /api/v1/payout-requests/{id}/cancel` | Operator | Recall an `UNCLAIMED` payout (409 in any other state) |

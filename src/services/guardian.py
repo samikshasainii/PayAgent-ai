@@ -104,6 +104,7 @@ async def evaluate_gate1(
         .where(
             PayoutRequestModel.artifact_sha256 == artifact_sha256,
             PayoutRequestModel.status.in_([
+                PayoutRequestStatus.RECEIVED,
                 PayoutRequestStatus.APPROVED,
                 PayoutRequestStatus.PENDING_HUMAN_APPROVAL,
                 PayoutRequestStatus.SUBMITTED,
