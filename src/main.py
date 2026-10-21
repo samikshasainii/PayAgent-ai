@@ -342,6 +342,36 @@ async def operator_cancel_request(
     await db.refresh(cancelled_req)
     return cancelled_req
 
+@app.post("/api/v1/payout-requests/{payout_request_id}/resolve-blocked", response_model=PayoutRequestOut)
+async def operator_resolve_blocked_request(
+    payout_request_id: str,
+    _: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Operator action to resolve a BLOCKED payout request after checking the PayPal dashboard.
+    Transitions BLOCKED -> FAILED, releasing the budget reservation and reopening the task.
+    Strictly returns 409 Conflict if request is in any state other than BLOCKED.
+    """
+    stmt = select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == payout_request_id)
+    req = (await db.execute(stmt)).scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Payout request not found")
+
+    if req.status != PayoutRequestStatus.BLOCKED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "INVALID_STATE",
+                "message": f"Only requests in BLOCKED can be resolved (current: {req.status.value})"
+            }
+        )
+
+    await transition_payout_request_status(db, req, PayoutRequestStatus.FAILED, decided_by="operator")
+    await db.commit()
+    await db.refresh(req)
+    return req
+
 @app.post("/api/v1/reconciliation/poll")
 async def trigger_reconciliation(
     _: bool = Depends(require_operator_token),

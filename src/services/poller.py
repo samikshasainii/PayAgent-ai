@@ -141,13 +141,13 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
     now_ts = time.time()
 
     for req in pending_requests:
-        # P4: Backoff for unclaimed requests older than 10 minutes (600 seconds)
-        if req.status == PayoutRequestStatus.UNCLAIMED:
+        # E3 / P4: Backoff for UNCLAIMED, ONHOLD, and BLOCKED requests older than 10 minutes (600 seconds)
+        if req.status in (PayoutRequestStatus.UNCLAIMED, PayoutRequestStatus.ONHOLD, PayoutRequestStatus.BLOCKED):
             age = (now - req.created_at).total_seconds() if req.created_at else 0
             if age > 600:
                 last_poll = _unclaimed_poll_timestamps.get(req.payout_request_id, 0.0)
                 if (now_ts - last_poll) < 3600.0:
-                    continue  # Hourly sweep backoff for long-running unclaimed items
+                    continue  # Hourly sweep backoff for long-running pending/held items
                 _unclaimed_poll_timestamps[req.payout_request_id] = now_ts
 
         # P3: Handle stuck SUBMITTED row with missing payout_batch_id
@@ -188,6 +188,7 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
             continue
 
         # Open short write transaction only for DB mutations
+        req_id = req.payout_request_id
         try:
             async with db.begin_nested():
                 if await apply_batch_reconciliation(db, req, batch_data):
@@ -195,7 +196,7 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
             await db.commit()
         except Exception as exc:
             await db.rollback()
-            logger.error(f"Poller failed to reconcile request {req.payout_request_id}: {exc}", exc_info=True)
+            logger.error(f"Poller failed to reconcile request {req_id}: {exc}", exc_info=True)
             continue
 
     return updated_count

@@ -13,7 +13,10 @@ from src.schemas.enums import TaskStatus, PayoutRequestStatus, AgentStatus
 from src.services.auth import hash_api_key
 from src.services.guardian import get_current_hour_window
 from src.services.paypal_client import paypal_client
-from src.services.poller import reconcile_all_pending
+from unittest.mock import patch, AsyncMock
+import httpx
+from src.main import app
+from src.services.poller import reconcile_all_pending, _unclaimed_poll_timestamps
 from src.services.state_machine import transition_payout_request_status
 
 def utc_now() -> datetime:
@@ -426,4 +429,213 @@ async def test_poller_per_row_savepoint_isolation():
         assert r_ok.status == PayoutRequestStatus.PAID
         await db.refresh(r_broken)
         assert r_broken.status == PayoutRequestStatus.SUBMITTED
+
+
+@pytest.mark.asyncio
+async def test_e3_operator_resolve_blocked_releases_hold_and_reopens_task():
+    """
+    E3 Entry Fix:
+    Operator action POST /api/v1/payout-requests/{id}/resolve-blocked moves BLOCKED -> FAILED,
+    releasing the budget hold and reopening the task.
+    """
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id="agent-e3-resolve",
+            name="E3 Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id="task-e3-resolve",
+            title="E3 Task",
+            acceptance_criteria="Verify criteria",
+            budget=Decimal("50.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id="agent-e3-resolve",
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=2),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        window = BudgetWindowModel(
+            agent_id="agent-e3-resolve",
+            window_start=get_current_hour_window(),
+            reserved=Decimal("30.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id="req-e3-blocked-01",
+            task_id="task-e3-resolve",
+            agent_id="agent-e3-resolve",
+            amount=Decimal("30.00"),
+            deliverables={"doc": "url"},
+            artifact_sha256="sha_e3_01",
+            status=PayoutRequestStatus.BLOCKED,
+            sender_batch_id="batch_e3_01",
+            paypal_request_id="req-e3-blocked-01",
+            created_at=utc_now()
+        )
+        db.add_all([agent, task, window, req])
+        await db.commit()
+
+    headers = {"Authorization": "Bearer test-operator-secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/v1/payout-requests/req-e3-blocked-01/resolve-blocked", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "FAILED"
+
+    # Assert local database state: budget hold released, task OPEN
+    async with async_session_factory() as db:
+        req_db = (await db.execute(select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == "req-e3-blocked-01"))).scalar_one()
+        assert req_db.status == PayoutRequestStatus.FAILED
+
+        task_db = (await db.execute(select(TaskModel).where(TaskModel.task_id == "task-e3-resolve"))).scalar_one()
+        assert task_db.status == TaskStatus.OPEN
+
+        bw_db = (await db.execute(select(BudgetWindowModel).where(BudgetWindowModel.agent_id == "agent-e3-resolve"))).scalar_one()
+        assert bw_db.reserved == Decimal("0.00")
+        assert bw_db.spent == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_e3_operator_resolve_blocked_on_non_blocked_returns_409():
+    """
+    E3 Entry Fix:
+    Attempting to resolve a request not in BLOCKED status strictly returns 409 Conflict.
+    """
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id="agent-e3-409",
+            name="E3 409 Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id="task-e3-409",
+            title="E3 Task 409",
+            acceptance_criteria="Verify criteria",
+            budget=Decimal("50.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id="agent-e3-409",
+            required_deliverables=["doc"],
+            deadline=utc_now() + timedelta(days=2),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        window = BudgetWindowModel(
+            agent_id="agent-e3-409",
+            window_start=get_current_hour_window(),
+            reserved=Decimal("30.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id="req-e3-submitted-01",
+            task_id="task-e3-409",
+            agent_id="agent-e3-409",
+            amount=Decimal("30.00"),
+            deliverables={"doc": "url"},
+            artifact_sha256="sha_e3_sub",
+            status=PayoutRequestStatus.SUBMITTED,
+            sender_batch_id="batch_e3_sub",
+            paypal_request_id="req-e3-submitted-01",
+            created_at=utc_now()
+        )
+        db.add_all([agent, task, window, req])
+        await db.commit()
+
+    headers = {"Authorization": "Bearer test-operator-secret-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/v1/payout-requests/req-e3-submitted-01/resolve-blocked", headers=headers)
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["error"] == "INVALID_STATE"
+
+
+@pytest.mark.asyncio
+async def test_e3_poller_backoff_skips_blocked_older_than_10_minutes():
+    """
+    E3 Entry Fix:
+    The UNCLAIMED backoff (hourly after 10 minutes) applies to BLOCKED rows.
+    A BLOCKED row older than 10 minutes is skipped when polled within the hour.
+    """
+    now = utc_now()
+    req_id = "req-e3-backoff-blk"
+    batch_id = "BATCH-E3-BACKOFF"
+
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id="agent-e3-backoff",
+            name="E3 Backoff Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id="task-e3-backoff",
+            title="E3 Backoff Task",
+            acceptance_criteria="Verify criteria",
+            budget=Decimal("50.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id="agent-e3-backoff",
+            required_deliverables=["doc"],
+            deadline=now + timedelta(days=2),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        hour_win = get_current_hour_window()
+        window = BudgetWindowModel(
+            agent_id="agent-e3-backoff",
+            window_start=hour_win,
+            reserved=Decimal("30.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id=req_id,
+            task_id="task-e3-backoff",
+            agent_id="agent-e3-backoff",
+            amount=Decimal("30.00"),
+            deliverables={"doc": "url"},
+            artifact_sha256="sha_e3_bo",
+            status=PayoutRequestStatus.BLOCKED,
+            payout_batch_id=batch_id,
+            sender_batch_id="batch_e3_bo",
+            paypal_request_id=req_id,
+            window_start=hour_win,
+            # Created 15 minutes ago (> 10 min)
+            created_at=now - timedelta(minutes=15)
+        )
+        db.add_all([agent, task, window, req])
+        await db.commit()
+
+    # 1. Simulate that it was polled 5 minutes ago (< 1 hour ago)
+    now_ts = time.time()
+    _unclaimed_poll_timestamps[req_id] = now_ts - 300.0
+
+    with patch("src.services.poller.paypal_client.get_payout_batch", new_callable=AsyncMock) as mock_get_batch:
+        async with async_session_factory() as db:
+            updated = await reconcile_all_pending(db)
+            assert updated == 0
+            # Poller must have skipped fetching because of hourly backoff
+            mock_get_batch.assert_not_called()
+
+    # 2. Simulate that it was polled 65 minutes ago (> 1 hour ago)
+    _unclaimed_poll_timestamps[req_id] = now_ts - 3900.0
+    mock_batch_data = {
+        "batch_header": {"payout_batch_id": batch_id},
+        "items": [{
+            "payout_item_id": "ITEM-E3-RESOLVED",
+            "transaction_status": "SUCCESS"
+        }]
+    }
+
+    with patch("src.services.poller.paypal_client.get_payout_batch", new_callable=AsyncMock) as mock_get_batch:
+        mock_get_batch.return_value = mock_batch_data
+        async with async_session_factory() as db:
+            updated = await reconcile_all_pending(db)
+            assert updated == 1
+            mock_get_batch.assert_called_once_with(batch_id)
+
+        # Verified timestamp updated
+        assert _unclaimed_poll_timestamps[req_id] > now_ts - 10.0
 
