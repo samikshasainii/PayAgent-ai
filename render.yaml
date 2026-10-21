@@ -33,7 +33,9 @@ services:
       - key: LLM_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: LLM_MODEL
-        value: gemini-3.8-flash
+        value: gemini-3.5-flash-lite
+      - key: LLM_TIMEOUT_SECONDS
+        value: "45"
       - key: OPERATOR_TOKEN
         sync: false
       # Free-tier disk is ephemeral: point this at an external persistent Postgres

@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
     LLM_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    LLM_MODEL: str = "gemini-3.8-flash"
-    LLM_TIMEOUT_SECONDS: int = 30
+    LLM_MODEL: str = "gemini-3.5-flash-lite"
+    LLM_TIMEOUT_SECONDS: int = 45
     MOCK_LLM: bool = False
 
     @model_validator(mode="after")

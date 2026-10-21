@@ -24,7 +24,7 @@ async def run_rest_demo(agent_id: str, api_key: str, scenario: str, run_salt: st
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as client:
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60.0) as client:
         print(f"\n=======================================================")
         print(f"🤖 [Agent: {agent_id}] Running Scenario: {scenario.upper()} (run: {run_salt})")
         print(f"=======================================================")

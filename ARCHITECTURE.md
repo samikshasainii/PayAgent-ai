@@ -36,7 +36,7 @@ PayAgent is the **only component that holds PayPal credentials**. Agents never s
 | Language | Python 3.11 | Matches `render.yaml` `PYTHON_VERSION`. |
 | API | FastAPI + Uvicorn (**single worker**) | Single worker is a documented assumption of the budget-reservation design (§5.3). |
 | Agent interface | REST **and** an MCP server exposed by PayAgent (`mcp` Python SDK) | Lets any MCP-capable agent request payment without custom glue (§6.5). |
-| Proof-of-Task review | `openai` SDK structured outputs against any OpenAI-compatible endpoint (Gemini `gemini-3.8-flash` default; OpenAI via `LLM_BASE_URL`) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
+| Proof-of-Task review | `openai` SDK structured outputs against any OpenAI-compatible endpoint (Gemini `gemini-3.5-flash-lite` default; OpenAI via `LLM_BASE_URL`) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
 | Settlement | PayPal Payouts v1 (`POST /v1/payments/payouts`, `GET /v1/payments/payouts/{id}`) | USD only in v1. |
 | Status updates | PayPal webhooks (RSA-verified) **+** reconciliation poller | Poller is the source of truth when no public URL exists (local judging). |
 | Persistence | SQLAlchemy async; **SQLite default**, Postgres optional via `DATABASE_URL` | Judges run locally with zero setup; hosted demo may point at a persistent Postgres (e.g. Neon). |
@@ -198,7 +198,7 @@ Rows 1–8 are evaluated in order; first failure rejects.
 | 7 | `artifact_sha256` already used by any request | 409 `POLICY_REJECTED` | `ARTIFACT_REPLAY` |
 | 8 | Atomic budget reservation fails (hourly cap) | 429 `POLICY_REJECTED` | `VELOCITY_CAP` |
 | — | *Gate 1 passed → Gate 2 LLM review runs* | | |
-| 9 | LLM error / timeout (10 s) / non-conforming output | `PENDING_HUMAN_APPROVAL` | `LLM_UNAVAILABLE` |
+| 9 | LLM error / timeout (45 s; free-tier Gemini measured 10–31 s) / non-conforming output | `PENDING_HUMAN_APPROVAL` | `LLM_UNAVAILABLE` |
 | 10 | `passed == false` or `confidence < 0.75` | `PENDING_HUMAN_APPROVAL` | `PROOF_DOUBTFUL` |
 | 11 | `amount > 50.00` (strictly greater; exactly $50.00 auto-approves) | `PENDING_HUMAN_APPROVAL` | `ABOVE_AUTO_LIMIT` |
 | 12 | None of 9–11 | `APPROVED` → dispatch | `AUTO_APPROVED` |
