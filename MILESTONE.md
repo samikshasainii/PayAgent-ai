@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: Milestone 3 (Console SSE, MCP client verification, Postman, Render deploy). Start with the **M3.0 Pre-flight** fixes below.
+- **Next Up**: M3.1 (SSE stream at `GET /api/v1/events`).
 
 ---
 
@@ -159,7 +159,8 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
   - `PUBLIC_HOST` set and present in the MCP `allowed_hosts`/`allowed_origins` (avoids 421 "Invalid Host header" under mcp 2.3.0 exact matching)
   - Register `https://<PUBLIC_HOST>/api/v1/webhooks/paypal` as the sandbox webhook, then set `PAYPAL_WEBHOOK_ID`
   - Free-tier sleep: warm the instance before recording
-- [ ] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
+- [x] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
+  - Done & approved (reviewer, 2026-10-22, commits 89c765f, b51c849, 370557f): snapshot covers types, nullability, keys, unique, indexes, FKs and enum values; Postgres enum guard; fail-closed --recreate-schema --yes-drop-everything; ARCHITECTURE §4.4.
 - [ ] M3.7 Final rehearsal on the hosted instance: warm the instance -> `python -m src.seed --reset` -> one warm-up `--scenario happy` -> `python -m src.seed --reset` -> `--scenario all`; operator approves escalate in the console and watches it reach `PAID` over SSE; verify every batch ID directly against PayPal; record the rough cut.
 
 ### Done When
