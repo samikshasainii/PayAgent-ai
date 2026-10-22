@@ -1,4 +1,5 @@
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pytest
@@ -638,4 +639,101 @@ async def test_e3_poller_backoff_skips_blocked_older_than_10_minutes():
 
         # Verified timestamp updated
         assert _unclaimed_poll_timestamps[req_id] > now_ts - 10.0
+
+
+@pytest.mark.asyncio
+async def test_poller_recovers_stuck_submitted_without_transaction_during_paypal_call(monkeypatch):
+    """
+    Carry-over P3 test: A SUBMITTED payout request with no payout_batch_id and
+    updated_at >= 60s ago is recovered via create_single_payout.
+    Verifies that no DB transaction is open when create_single_payout is called,
+    and that payout_batch_id is successfully persisted.
+    """
+    now = utc_now()
+    agent_id = f"ag-p3-{uuid.uuid4().hex[:6]}"
+    task_id = f"task-p3-{uuid.uuid4().hex[:6]}"
+    req_id = f"req-p3-{uuid.uuid4().hex[:6]}"
+    batch_id = f"BATCH-P3-REC-{uuid.uuid4().hex[:6]}"
+    item_id = f"ITEM-P3-REC-{uuid.uuid4().hex[:6]}"
+    hour_win = get_current_hour_window()
+
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="P3 Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id=task_id,
+            title="P3 Stuck Recovery Task",
+            acceptance_criteria="Verify P3",
+            budget=Decimal("45.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["doc"],
+            deadline=now + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        budget = BudgetWindowModel(
+            agent_id=agent_id,
+            window_start=hour_win,
+            reserved=Decimal("45.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id=req_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            amount=Decimal("45.00"),
+            deliverables={"doc": "proof"},
+            artifact_sha256="sha256_p3_mock",
+            status=PayoutRequestStatus.SUBMITTED,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"sb_p3_{uuid.uuid4().hex[:8]}",
+            paypal_request_id=f"pr_p3_{uuid.uuid4().hex[:8]}",
+            payout_batch_id=None,  # Stuck without batch ID!
+            window_start=hour_win,
+            created_at=now - timedelta(seconds=90),
+            updated_at=now - timedelta(seconds=90)
+        )
+        item = PayoutItemModel(
+            payout_item_id=item_id,
+            payout_request_id=req_id,
+            transaction_status="PENDING"
+        )
+        db.add_all([agent, task, budget, req, item])
+        await db.commit()
+
+    create_tx_states = []
+
+    async def spy_create_single_payout(sender_batch_id, paypal_request_id, recipient_email, amount, currency, note):
+        create_tx_states.append(db.in_transaction())
+        return {"batch_header": {"payout_batch_id": batch_id}}
+
+    async def mock_get_batch(b_id):
+        return {
+            "batch_header": {"payout_batch_id": b_id, "batch_status": "SUCCESS"},
+            "items": [{"payout_item_id": item_id, "transaction_status": "SUCCESS"}]
+        }
+
+    monkeypatch.setattr(paypal_client, "create_single_payout", spy_create_single_payout)
+    monkeypatch.setattr(paypal_client, "get_payout_batch", mock_get_batch)
+
+    async with async_session_factory() as db:
+        updated = await reconcile_all_pending(db)
+        assert updated == 1
+
+        # Check create_single_payout was called outside any DB transaction
+        assert len(create_tx_states) == 1
+        assert create_tx_states == [False]
+
+        # Verify payout_batch_id was persisted
+        res = await db.execute(select(PayoutRequestModel).where(PayoutRequestModel.payout_request_id == req_id))
+        refreshed_req = res.scalar_one()
+        assert refreshed_req.payout_batch_id == batch_id
+        assert refreshed_req.status == PayoutRequestStatus.PAID
+
 

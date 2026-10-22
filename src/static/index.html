@@ -12,6 +12,7 @@
         :root {
             --bg-primary: #0f172a;
             --bg-secondary: #1e293b;
+            --bg-tertiary: #111e33;
             --border-color: #334155;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
@@ -36,6 +37,20 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+        }
+
+        /* Mock Mode Banner */
+        #mockBanner {
+            display: none;
+            background: linear-gradient(90deg, #b45309, #d97706);
+            color: #fff;
+            padding: 0.5rem 2rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            z-index: 100;
         }
 
         header {
@@ -81,6 +96,60 @@
             gap: 0.75rem;
         }
 
+        .connection-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .connection-pill.live {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid #10b981;
+        }
+        .connection-pill.live .dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 6px #10b981;
+        }
+
+        .connection-pill.polling {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid #f59e0b;
+        }
+        .connection-pill.polling .dot {
+            width: 8px;
+            height: 8px;
+            background: #f59e0b;
+            border-radius: 50%;
+        }
+
+        .connection-pill.disconnected {
+            background: rgba(148, 163, 184, 0.15);
+            color: #94a3b8;
+            border: 1px solid #64748b;
+        }
+        .connection-pill.disconnected .dot {
+            width: 8px;
+            height: 8px;
+            background: #64748b;
+            border-radius: 50%;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+
         .input-token {
             background-color: var(--bg-primary);
             border: 1px solid var(--border-color);
@@ -88,7 +157,7 @@
             padding: 0.5rem 0.8rem;
             border-radius: 6px;
             font-size: 0.85rem;
-            width: 260px;
+            width: 240px;
         }
 
         .btn {
@@ -97,11 +166,11 @@
             border: none;
             padding: 0.5rem 1rem;
             border-radius: 6px;
-            cursor: pointer;
             font-size: 0.85rem;
             font-weight: 600;
+            cursor: pointer;
             transition: all 0.2s ease;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 0.4rem;
         }
@@ -122,20 +191,8 @@
             border-color: var(--accent-cyan);
         }
 
-        .btn-action-approve {
-            background-color: #059669;
-            color: white;
-            padding: 0.25rem 0.6rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            cursor: pointer;
-            margin-right: 4px;
-        }
-
-        .btn-action-reject {
-            background-color: #dc2626;
+        .btn-action-review {
+            background-color: #0284c7;
             color: white;
             padding: 0.25rem 0.6rem;
             border: none;
@@ -148,6 +205,30 @@
 
         .btn-action-cancel {
             background-color: #6d28d9;
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .btn-action-resolve {
+            background-color: #b91c1c;
+            color: white;
+            padding: 0.25rem 0.6rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .btn-action-release {
+            background-color: #059669;
             color: white;
             padding: 0.25rem 0.6rem;
             border: none;
@@ -233,7 +314,9 @@
         }
 
         .status-badge {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             padding: 2px 8px;
             border-radius: 12px;
             font-size: 0.75rem;
@@ -244,21 +327,216 @@
         .badge-PAID { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
         .badge-PENDING_HUMAN_APPROVAL { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
         .badge-POLICY_REJECTED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+        .badge-HUMAN_REJECTED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
         .badge-FAILED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        .badge-RECEIVED { background: rgba(2, 132, 199, 0.12); color: #7dd3fc; border: 1px dashed #0284c7; }
         .badge-SUBMITTED { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid #0284c7; }
+        .badge-APPROVED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
         .badge-UNCLAIMED { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #8b5cf6; }
         .badge-CANCELED { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #94a3b8; }
         .badge-OPEN { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
+        .badge-ACTIVE { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
+        .badge-QUARANTINED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-weight: 800; }
+
+        /* RECEIVED pulse & spinner */
+        .badge-RECEIVED {
+            background: rgba(2, 132, 199, 0.2);
+            color: #38bdf8;
+            border: 1px dashed #0284c7;
+            animation: pulse-received 1.6s infinite ease-in-out;
+        }
+        @keyframes pulse-received {
+            0%, 100% { transform: scale(1); opacity: 0.85; }
+            50% { transform: scale(1.03); opacity: 1; }
+        }
+        .spinner-inline {
+            width: 8px;
+            height: 8px;
+            border: 2px solid #38bdf8;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* BLOCKED and ONHOLD distinct styling */
+        .badge-BLOCKED {
+            background: rgba(220, 38, 38, 0.25);
+            color: #fca5a5;
+            border: 1px solid #ef4444;
+            box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+        }
+        .badge-ONHOLD {
+            background: rgba(217, 119, 6, 0.25);
+            color: #fde68a;
+            border: 1px dashed #f59e0b;
+        }
 
         .risk-badge {
             font-weight: 700;
             padding: 2px 6px;
             border-radius: 4px;
+            font-size: 0.75rem;
         }
-        .risk-low { color: #34d399; }
-        .risk-med { color: #fbbf24; }
-        .risk-high { color: #f87171; }
+        .risk-low { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+        .risk-med { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .risk-high { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+        .reason-chip {
+            display: inline-block;
+            background: #334155;
+            color: #e2e8f0;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            margin-right: 4px;
+            font-family: monospace;
+        }
+
+        /* Modal Styles */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-backdrop.open {
+            display: flex;
+        }
+
+        .modal-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 650px;
+            max-height: 85vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            padding: 1.75rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 0.75rem;
+        }
+
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .meta-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+            background: #0f172a;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            border: 1px solid #334155;
+        }
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .meta-label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+        .meta-value {
+            font-weight: 600;
+            color: #f8fafc;
+            word-break: break-all;
+        }
+
+        .review-section-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+
+        .box-pre {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 0.75rem;
+            font-family: monospace;
+            font-size: 0.82rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 160px;
+            overflow-y: auto;
+            color: #e2e8f0;
+        }
+
+        .modal-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            border-top: 1px solid #334155;
+            padding-top: 1rem;
+        }
+
+        .btn-confirm-approve {
+            background-color: #059669;
+            color: white;
+            padding: 0.5rem 1.2rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-confirm-approve:hover { background-color: #047857; }
+
+        .btn-confirm-reject {
+            background-color: #dc2626;
+            color: white;
+            padding: 0.5rem 1.2rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn-confirm-reject:hover { background-color: #b91c1c; }
+
+        .btn-close-modal {
+            background-color: #334155;
+            color: #cbd5e1;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-close-modal:hover { background-color: #475569; }
 
         #toast {
             position: fixed;
@@ -277,22 +555,33 @@
     </style>
 </head>
 <body>
+    <!-- Permanent Mock Mode Banner -->
+    <div id="mockBanner">
+        ⚠️ MOCK MODE ACTIVE: <span id="mockBannerDetails">Mock PayPal: ON | Mock LLM: ON</span> (Testing Mode — No Real Funds Moved)
+    </div>
+
     <header>
         <div class="brand">
             <span class="logo-badge">PayAgent AI</span>
             <div>
                 <div class="brand-title">Financial Guardian & Swarm Payout Console</div>
-                <div class="brand-subtitle">Powered by AG Grid & PayPal Sandbox Payouts v1</div>
+                <div class="brand-subtitle">Powered by AG Grid, PayPal Sandbox Payouts v1 & Real-time SSE</div>
             </div>
         </div>
         <div class="controls">
-            <input type="password" id="operatorToken" class="input-token" placeholder="Operator Token" />
+            <!-- Connection Pill -->
+            <span id="connectionBadge" class="connection-pill disconnected">
+                <span class="dot"></span>
+                <span id="connectionText">Disconnected</span>
+            </span>
+            <input type="password" id="operatorToken" class="input-token" placeholder="Operator Token" autocomplete="off" />
             <button class="btn btn-secondary" onclick="triggerPoller()">🔄 Reconcile Poller</button>
-            <button class="btn" onclick="refreshData()">⚡ Refresh Live</button>
+            <button class="btn" onclick="refreshData()">⚡ Refresh</button>
         </div>
     </header>
 
     <main>
+        <!-- Metrics Cards -->
         <div class="metrics-bar">
             <div class="metric-card">
                 <span class="metric-label">Total Payout Volume</span>
@@ -310,69 +599,184 @@
                 <span class="metric-label">Registered Tasks</span>
                 <span class="metric-value" id="metricTasks" style="color: #a78bfa;">0</span>
             </div>
+            <div class="metric-card">
+                <span class="metric-label">Quarantined Agents</span>
+                <span class="metric-value" id="metricQuarantined" style="color: #f87171;">0</span>
+            </div>
         </div>
 
+        <!-- Section 1: Payout Requests -->
         <div class="grid-section">
             <div class="grid-header">
                 <div class="grid-title">🛡️ Guardian Payout Requests & Audit Log</div>
-                <span style="font-size: 0.8rem; color: var(--text-secondary);">Auto-refreshes every 3 seconds</span>
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">Real-time stream updates via Server-Sent Events</span>
             </div>
             <div id="payoutGrid" class="ag-theme-alpine-dark" style="height: 380px; width: 100%;"></div>
         </div>
 
+        <!-- Section 2: Agent Registry & Spend Velocity -->
+        <div class="grid-section">
+            <div class="grid-header">
+                <div class="grid-title">🤖 Autonomous Agent Swarm & Spend Velocity</div>
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">Hourly spend velocity vs cap tracking</span>
+            </div>
+            <div id="agentGrid" class="ag-theme-alpine-dark" style="height: 220px; width: 100%;"></div>
+        </div>
+
+        <!-- Section 3: Task Contract Registry -->
         <div class="grid-section">
             <div class="grid-header">
                 <div class="grid-title">📋 Operator Task Contract Registry</div>
             </div>
-            <div id="taskGrid" class="ag-theme-alpine-dark" style="height: 250px; width: 100%;"></div>
+            <div id="taskGrid" class="ag-theme-alpine-dark" style="height: 240px; width: 100%;"></div>
         </div>
     </main>
+
+    <!-- Modal Dialog for HITL Approve / Reject -->
+    <div id="reviewModal" class="modal-backdrop">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title">Human-in-the-Loop Review</div>
+                <button class="btn-close-modal" onclick="closeReviewModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="meta-row">
+                    <div class="meta-item">
+                        <span class="meta-label">Request ID</span>
+                        <span class="meta-value" id="modalReqId">-</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Amount</span>
+                        <span class="meta-value" id="modalAmount" style="color: #34d399;">$0.00</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Task ID</span>
+                        <span class="meta-value" id="modalTaskId">-</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Agent ID</span>
+                        <span class="meta-value" id="modalAgentId">-</span>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="review-section-title">📦 Deliverables Submitted by Agent</div>
+                    <div id="modalDeliverables" class="box-pre">None</div>
+                </div>
+
+                <div>
+                    <div class="review-section-title">🧠 Gate 2 LLM Proof-of-Task Evaluation</div>
+                    <div id="modalLlmVerdict" class="box-pre">No evaluation recorded</div>
+                </div>
+
+                <div>
+                    <div class="review-section-title">⚠️ Decision Reasons</div>
+                    <div id="modalReasons" style="display: flex; gap: 6px; flex-wrap: wrap;">None</div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-close-modal" onclick="closeReviewModal()">Cancel</button>
+                <button class="btn-confirm-reject" id="btnModalReject">Reject Payout</button>
+                <button class="btn-confirm-approve" id="btnModalApprove">Approve & Dispatch Payout</button>
+            </div>
+        </div>
+    </div>
 
     <div id="toast"></div>
 
     <script>
+        // --- Security & Escaping Helpers ---
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return "";
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
         function showToast(msg, isError = false) {
             const toast = document.getElementById("toast");
-            toast.innerText = msg;
+            toast.textContent = msg; // textContent protects against XSS
             toast.style.background = isError ? "#dc2626" : "#0284c7";
             toast.style.display = "block";
             setTimeout(() => { toast.style.display = "none"; }, 3500);
         }
 
+        function getAuthToken() {
+            // Read from sessionStorage or DOM element, NEVER localStorage
+            return (sessionStorage.getItem("payagent_token") || document.getElementById("operatorToken").value || "").trim();
+        }
+
         function getAuthHeaders() {
-            const token = document.getElementById("operatorToken").value.trim();
+            const token = getAuthToken();
             return {
                 "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             };
         }
 
-        // Payout Grid Columns
+        // Cache of current payouts for modal review
+        let currentPayoutsMap = new Map();
+        let payoutGridApi = null;
+        let agentGridApi = null;
+        let taskGridApi = null;
+
+        // --- Grid Column Definitions ---
         const payoutColumnDefs = [
             { 
                 field: "payout_request_id", 
                 headerName: "Request ID", 
                 width: 140,
-                cellRenderer: p => `<span title="${p.value}">${p.value ? p.value.substring(0, 10) + '...' : ''}</span>`
+                cellRenderer: p => {
+                    const safeVal = escapeHtml(p.value);
+                    const shortVal = escapeHtml(p.value ? p.value.substring(0, 10) + '...' : '');
+                    return `<span title="${safeVal}">${shortVal}</span>`;
+                }
             },
-            { field: "task_id", headerName: "Task ID", width: 160 },
-            { field: "agent_id", headerName: "Agent", width: 150 },
+            { 
+                field: "task_id", 
+                headerName: "Task ID", 
+                width: 150,
+                cellRenderer: p => escapeHtml(p.value)
+            },
+            { 
+                field: "agent_id", 
+                headerName: "Agent", 
+                width: 140,
+                cellRenderer: p => escapeHtml(p.value)
+            },
             { 
                 field: "amount", 
                 headerName: "Amount", 
-                width: 110,
-                cellRenderer: p => `<strong>$${parseFloat(p.value).toFixed(2)}</strong>`
+                width: 100,
+                cellRenderer: p => `<strong>$${parseFloat(p.value || 0).toFixed(2)}</strong>`
             },
             { 
                 field: "status", 
                 headerName: "Status", 
-                width: 170,
-                cellRenderer: p => `<span class="status-badge badge-${p.value}">${p.value}</span>`
+                width: 180,
+                cellRenderer: p => {
+                    const status = p.value || "UNKNOWN";
+                    if (status === "RECEIVED") {
+                        return `<span class="status-badge badge-RECEIVED"><span class="spinner-inline"></span> In Review</span>`;
+                    }
+                    if (status === "BLOCKED") {
+                        return `<span class="status-badge badge-BLOCKED">⚠️ BLOCKED</span>`;
+                    }
+                    if (status === "ONHOLD") {
+                        return `<span class="status-badge badge-ONHOLD">⏳ ONHOLD</span>`;
+                    }
+                    return `<span class="status-badge badge-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
+                }
             },
             { 
                 field: "risk_score", 
                 headerName: "Risk", 
-                width: 90,
+                width: 85,
                 cellRenderer: p => {
                     if (p.value == null) return "-";
                     const score = parseFloat(p.value);
@@ -384,93 +788,263 @@
                 field: "decision_reasons", 
                 headerName: "Decision Reasons", 
                 flex: 1,
-                cellRenderer: p => Array.isArray(p.value) ? p.value.join(", ") : (p.value || "")
+                cellRenderer: p => {
+                    if (!p.value || !Array.isArray(p.value)) return "";
+                    return p.value.map(r => `<span class="reason-chip">${escapeHtml(r)}</span>`).join("");
+                }
             },
             { 
-                field: "sender_batch_id", 
-                headerName: "Sender Batch ID", 
-                width: 160,
-                cellRenderer: p => `<span title="${p.value}">${p.value ? p.value.substring(0, 14) + '...' : ''}</span>`
+                field: "created_at", 
+                headerName: "Submitted (Local)", 
+                width: 170,
+                cellRenderer: p => {
+                    if (!p.value) return "-";
+                    try {
+                        const d = new Date(p.value);
+                        return escapeHtml(d.toLocaleString());
+                    } catch (e) {
+                        return escapeHtml(p.value);
+                    }
+                }
             },
             {
                 headerName: "Actions",
-                width: 220,
+                width: 160,
                 cellRenderer: p => {
                     const row = p.data;
-                    let btns = '';
+                    const id = escapeHtml(row.payout_request_id);
                     if (row.status === "PENDING_HUMAN_APPROVAL") {
-                        btns += `<button class="btn-action-approve" onclick="approveRequest('${row.payout_request_id}')">Approve</button>`;
-                        btns += `<button class="btn-action-reject" onclick="rejectRequest('${row.payout_request_id}')">Reject</button>`;
+                        return `<button class="btn-action-review" onclick="openReviewModal('${id}')">🔍 Review</button>`;
                     }
                     if (row.status === "UNCLAIMED") {
-                        btns += `<button class="btn-action-cancel" onclick="cancelRequest('${row.payout_request_id}')">Cancel Recall</button>`;
+                        return `<button class="btn-action-cancel" onclick="cancelRequest('${id}')">Cancel</button>`;
                     }
-                    return btns || '<span style="color: #64748b; font-size: 0.75rem;">None</span>';
+                    if (row.status === "BLOCKED") {
+                        return `<button class="btn-action-resolve" onclick="resolveBlockedRequest('${id}')">Resolve</button>`;
+                    }
+                    return '<span style="color: #64748b; font-size: 0.75rem;">None</span>';
                 }
             }
         ];
 
-        // Task Grid Columns
+        const agentColumnDefs = [
+            { 
+                field: "agent_id", 
+                headerName: "Agent ID", 
+                width: 160,
+                cellRenderer: p => escapeHtml(p.value)
+            },
+            { 
+                field: "name", 
+                headerName: "Name", 
+                flex: 1,
+                cellRenderer: p => escapeHtml(p.value)
+            },
+            { 
+                field: "status", 
+                headerName: "Status", 
+                width: 140,
+                cellRenderer: p => `<span class="status-badge badge-${escapeHtml(p.value)}">${escapeHtml(p.value)}</span>`
+            },
+            { 
+                field: "hourly_cap", 
+                headerName: "Hourly Cap", 
+                width: 120,
+                cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
+            },
+            { 
+                field: "current_burn", 
+                headerName: "Hourly Burn (Current)", 
+                width: 170,
+                cellRenderer: p => {
+                    const burn = parseFloat(p.value || 0);
+                    const cap = parseFloat(p.data.hourly_cap || 200);
+                    const pct = Math.min(100, (burn / cap) * 100);
+                    const color = pct >= 90 ? "#ef4444" : (pct >= 60 ? "#f59e0b" : "#34d399");
+                    return `<strong style="color: ${color}">$${burn.toFixed(2)}</strong> / $${cap.toFixed(2)}`;
+                }
+            },
+            { 
+                field: "current_reserved", 
+                headerName: "Reserved", 
+                width: 110,
+                cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
+            },
+            { 
+                field: "current_spent", 
+                headerName: "Spent", 
+                width: 110,
+                cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
+            },
+            {
+                headerName: "Actions",
+                width: 120,
+                cellRenderer: p => {
+                    const row = p.data;
+                    if (row.status === "QUARANTINED") {
+                        return `<button class="btn-action-release" onclick="releaseAgent('${escapeHtml(row.agent_id)}')">Release</button>`;
+                    }
+                    return '<span style="color: #64748b; font-size: 0.75rem;">None</span>';
+                }
+            }
+        ];
+
         const taskColumnDefs = [
-            { field: "task_id", headerName: "Task ID", width: 180 },
-            { field: "title", headerName: "Title", flex: 1 },
+            { 
+                field: "task_id", 
+                headerName: "Task ID", 
+                width: 170,
+                cellRenderer: p => escapeHtml(p.value)
+            },
+            { 
+                field: "title", 
+                headerName: "Title", 
+                flex: 1,
+                cellRenderer: p => escapeHtml(p.value)
+            },
             { 
                 field: "budget", 
                 headerName: "Budget", 
-                width: 120,
-                cellRenderer: p => `$${parseFloat(p.value).toFixed(2)}`
+                width: 110,
+                cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
             },
-            { field: "allowed_recipient", headerName: "Allowed Recipient", width: 220 },
-            { field: "assigned_agent_id", headerName: "Assigned Agent", width: 170 },
+            { 
+                field: "allowed_recipient", 
+                headerName: "Allowed Recipient", 
+                width: 210,
+                cellRenderer: p => escapeHtml(p.value)
+            },
+            { 
+                field: "assigned_agent_id", 
+                headerName: "Assigned Agent", 
+                width: 160,
+                cellRenderer: p => escapeHtml(p.value)
+            },
             { 
                 field: "status", 
                 headerName: "Status", 
                 width: 130,
-                cellRenderer: p => `<span class="status-badge badge-${p.value}">${p.value}</span>`
+                cellRenderer: p => `<span class="status-badge badge-${escapeHtml(p.value)}">${escapeHtml(p.value)}</span>`
             }
         ];
 
-        let payoutGridApi = null;
-        let taskGridApi = null;
-
-        document.addEventListener("DOMContentLoaded", () => {
-            const savedToken = localStorage.getItem("payagent_token");
-            if (savedToken) {
-                document.getElementById("operatorToken").value = savedToken;
+        // --- Connection Indicator Management ---
+        function updateConnectionBadge(mode) {
+            const badge = document.getElementById("connectionBadge");
+            const text = document.getElementById("connectionText");
+            badge.className = "connection-pill " + mode;
+            if (mode === "live") {
+                text.textContent = "Live (SSE)";
+            } else if (mode === "polling") {
+                text.textContent = "Polling (2s fallback)";
+            } else {
+                text.textContent = "Disconnected";
             }
-            document.getElementById("operatorToken").addEventListener("change", (e) => {
-                localStorage.setItem("payagent_token", e.target.value.trim());
-            });
+        }
 
-            // Initialize AG Grids
-            const payoutGridDiv = document.querySelector("#payoutGrid");
-            payoutGridApi = agGrid.createGrid(payoutGridDiv, {
-                columnDefs: payoutColumnDefs,
-                rowData: [],
-                pagination: true,
-                paginationPageSize: 10,
-                defaultColDef: { sortable: true, filter: true, resizable: true }
-            });
+        // --- Fallback Polling ---
+        let pollingInterval = null;
+        function startPolling() {
+            if (!pollingInterval) {
+                pollingInterval = setInterval(refreshData, 2000);
+                updateConnectionBadge("polling");
+            }
+        }
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
 
-            const taskGridDiv = document.querySelector("#taskGrid");
-            taskGridApi = agGrid.createGrid(taskGridDiv, {
-                columnDefs: taskColumnDefs,
-                rowData: [],
-                defaultColDef: { sortable: true, filter: true, resizable: true }
-            });
+        // --- SSE Stream Connection ---
+        let sseSource = null;
+        function connectSSE() {
+            const token = getAuthToken();
+            if (!token) {
+                if (sseSource) {
+                    sseSource.close();
+                    sseSource = null;
+                }
+                stopPolling();
+                updateConnectionBadge("disconnected");
+                return;
+            }
 
-            refreshData();
-            setInterval(refreshData, 3000);
-        });
+            if (sseSource) {
+                sseSource.close();
+                sseSource = null;
+            }
 
-        async function refreshData() {
+            const streamUrl = `/api/v1/events?token=${encodeURIComponent(token)}`;
             try {
-                const headers = getAuthHeaders();
-                
-                // Fetch Payout Requests
+                sseSource = new EventSource(streamUrl);
+
+                sseSource.onopen = () => {
+                    stopPolling();
+                    updateConnectionBadge("live");
+                    // Re-fetch all data over REST on open to recover any missed events
+                    refreshData();
+                };
+
+                sseSource.onerror = (err) => {
+                    // Fall back to polling on disconnect
+                    startPolling();
+                };
+
+                sseSource.addEventListener("payout_request", (e) => {
+                    // Refresh data on payout_request event
+                    refreshData();
+                });
+
+                sseSource.addEventListener("task", (e) => {
+                    refreshData();
+                });
+
+                sseSource.addEventListener("agent", (e) => {
+                    refreshData();
+                });
+
+                sseSource.onmessage = (e) => {
+                    // Non-ping message triggers refresh
+                    if (e.data && e.data.trim() !== "ping") {
+                        refreshData();
+                    }
+                };
+            } catch (err) {
+                startPolling();
+            }
+        }
+
+        // --- Data Fetching ---
+        async function refreshData() {
+            const token = getAuthToken();
+            if (!token) return;
+            const headers = getAuthHeaders();
+
+            try {
+                // 1. Fetch Config (Mock Banner)
+                const configRes = await fetch("/api/v1/config", { headers });
+                if (configRes.ok) {
+                    const cfg = await configRes.json();
+                    const banner = document.getElementById("mockBanner");
+                    if (cfg.mock_paypal || cfg.mock_llm) {
+                        const ppText = cfg.mock_paypal ? "ON" : "OFF";
+                        const llmText = cfg.mock_llm ? "ON" : "OFF";
+                        document.getElementById("mockBannerDetails").textContent = `Mock PayPal: ${ppText} | Mock LLM: ${llmText}`;
+                        banner.style.display = "block";
+                    } else {
+                        banner.style.display = "none";
+                    }
+                }
+
+                // 2. Fetch Payout Requests
                 const payoutRes = await fetch("/api/v1/payout-requests", { headers });
                 if (payoutRes.ok) {
                     const payouts = await payoutRes.json();
+                    currentPayoutsMap.clear();
+                    payouts.forEach(p => currentPayoutsMap.set(p.payout_request_id, p));
+
                     if (payoutGridApi) payoutGridApi.setGridOption("rowData", payouts);
 
                     // Compute metrics
@@ -479,36 +1053,123 @@
                     let paidCount = 0;
                     payouts.forEach(p => {
                         if (p.status === "PAID") {
-                            totalVol += parseFloat(p.amount);
+                            totalVol += parseFloat(p.amount || 0);
                             paidCount++;
                         }
                         if (p.status === "PENDING_HUMAN_APPROVAL") {
                             pendingCount++;
                         }
                     });
-                    document.getElementById("metricTotalVol").innerText = `$${totalVol.toFixed(2)}`;
-                    document.getElementById("metricPending").innerText = pendingCount;
-                    document.getElementById("metricPaid").innerText = paidCount;
+                    document.getElementById("metricTotalVol").textContent = `$${totalVol.toFixed(2)}`;
+                    document.getElementById("metricPending").textContent = pendingCount;
+                    document.getElementById("metricPaid").textContent = paidCount;
                 }
 
-                // Fetch Tasks
+                // 3. Fetch Agents
+                const agentRes = await fetch("/api/v1/agents", { headers });
+                if (agentRes.ok) {
+                    const agents = await agentRes.json();
+                    if (agentGridApi) agentGridApi.setGridOption("rowData", agents);
+
+                    let quarantinedCount = 0;
+                    agents.forEach(a => {
+                        if (a.status === "QUARANTINED") quarantinedCount++;
+                    });
+                    document.getElementById("metricQuarantined").textContent = quarantinedCount;
+                }
+
+                // 4. Fetch Tasks
                 const taskRes = await fetch("/api/v1/tasks", { headers });
                 if (taskRes.ok) {
                     const tasks = await taskRes.json();
                     if (taskGridApi) taskGridApi.setGridOption("rowData", tasks);
-                    document.getElementById("metricTasks").innerText = tasks.length;
+                    document.getElementById("metricTasks").textContent = tasks.length;
                 }
             } catch (err) {
                 console.error("Refresh error:", err);
             }
         }
 
+        // --- Human-In-The-Loop Modal Dialog ---
+        function openReviewModal(requestId) {
+            const req = currentPayoutsMap.get(requestId);
+            if (!req) {
+                showToast("Request details not found", true);
+                return;
+            }
+
+            // Populate metadata safely via textContent
+            document.getElementById("modalReqId").textContent = req.payout_request_id || "-";
+            document.getElementById("modalAmount").textContent = `$${parseFloat(req.amount || 0).toFixed(2)}`;
+            document.getElementById("modalTaskId").textContent = req.task_id || "-";
+            document.getElementById("modalAgentId").textContent = req.agent_id || "-";
+
+            // Deliverables
+            const delivElem = document.getElementById("modalDeliverables");
+            delivElem.textContent = ""; // Clear existing
+            if (req.deliverables && typeof req.deliverables === "object") {
+                delivElem.textContent = JSON.stringify(req.deliverables, null, 2);
+            } else {
+                delivElem.textContent = "No deliverables attached";
+            }
+
+            // LLM Reasoning & Verdict
+            const llmElem = document.getElementById("modalLlmVerdict");
+            llmElem.textContent = "";
+            if (req.llm_verdict) {
+                const verdict = req.llm_verdict;
+                const statusStr = verdict.passed ? "PASSED (AUTO_APPROVED)" : "FAILED / DOUBTFUL";
+                const confStr = verdict.confidence != null ? `${(verdict.confidence * 100).toFixed(1)}%` : "N/A";
+                const reasoning = verdict.reasoning || "None";
+                llmElem.textContent = `Verdict: ${statusStr}\nConfidence: ${confStr}\n\nReasoning:\n${reasoning}`;
+            } else {
+                llmElem.textContent = "No LLM review recorded (Review pending or bypass applied).";
+            }
+
+            // Decision Reasons
+            const reasonsContainer = document.getElementById("modalReasons");
+            reasonsContainer.textContent = "";
+            if (Array.isArray(req.decision_reasons) && req.decision_reasons.length > 0) {
+                req.decision_reasons.forEach(r => {
+                    const chip = document.createElement("span");
+                    chip.className = "reason-chip";
+                    chip.textContent = r; // textContent protects against XSS
+                    reasonsContainer.appendChild(chip);
+                });
+            } else {
+                reasonsContainer.textContent = "None";
+            }
+
+            // Wire Buttons
+            const btnApprove = document.getElementById("btnModalApprove");
+            const btnReject = document.getElementById("btnModalReject");
+
+            btnApprove.onclick = async () => {
+                await approveRequest(requestId);
+                closeReviewModal();
+            };
+
+            btnReject.onclick = async () => {
+                await rejectRequest(requestId);
+                closeReviewModal();
+            };
+
+            document.getElementById("reviewModal").classList.add("open");
+        }
+
+        function closeReviewModal() {
+            document.getElementById("reviewModal").classList.remove("open");
+        }
+
+        // --- Operator Actions ---
         async function triggerPoller() {
             try {
-                const headers = getAuthHeaders();
-                const res = await fetch("/api/v1/reconciliation/poll", { method: "POST", headers });
+                const res = await fetch("/api/v1/reconciliation/poll", {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
                 const data = await res.json();
-                showToast(`Poller cycle complete: ${data.reconciled_count || 0} items updated.`);
+                showToast(`Poller complete: ${data.reconciled_count || 0} updated.`);
                 refreshData();
             } catch (err) {
                 showToast("Failed to run reconciliation poller", true);
@@ -526,7 +1187,7 @@
                     refreshData();
                 } else {
                     const err = await res.json();
-                    showToast(err.detail || "Approval failed", true);
+                    showToast(err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Approval failed", true);
                 }
             } catch (err) {
                 showToast("Network error approving request", true);
@@ -544,7 +1205,7 @@
                     refreshData();
                 } else {
                     const err = await res.json();
-                    showToast(err.detail || "Rejection failed", true);
+                    showToast(err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Rejection failed", true);
                 }
             } catch (err) {
                 showToast("Network error rejecting request", true);
@@ -558,16 +1219,95 @@
                     headers: getAuthHeaders()
                 });
                 if (res.ok) {
-                    showToast(`Recalled and cancelled unclaimed payout ${id.substring(0, 8)}...`);
+                    showToast(`Cancelled and recalled payout ${id.substring(0, 8)}...`);
                     refreshData();
                 } else {
                     const err = await res.json();
-                    showToast(err.detail || "Cancel failed", true);
+                    showToast(err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Cancel failed", true);
                 }
             } catch (err) {
                 showToast("Network error cancelling request", true);
             }
         }
+
+        async function resolveBlockedRequest(id) {
+            try {
+                const res = await fetch(`/api/v1/payout-requests/${id}/resolve-blocked`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    showToast(`Resolved BLOCKED payout ${id.substring(0, 8)}... -> FAILED (Task reopened)`);
+                    refreshData();
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Resolve failed", true);
+                }
+            } catch (err) {
+                showToast("Network error resolving blocked request", true);
+            }
+        }
+
+        async function releaseAgent(agentId) {
+            try {
+                const res = await fetch(`/api/v1/agents/${agentId}/release`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    showToast(`Agent ${agentId} released from quarantine.`);
+                    refreshData();
+                } else {
+                    const err = await res.json();
+                    showToast(err.detail || "Release failed", true);
+                }
+            } catch (err) {
+                showToast("Network error releasing agent", true);
+            }
+        }
+
+        // --- Initialization ---
+        document.addEventListener("DOMContentLoaded", () => {
+            // Restore token ONLY from sessionStorage (never localStorage)
+            const tokenInput = document.getElementById("operatorToken");
+            const savedToken = sessionStorage.getItem("payagent_token");
+            if (savedToken) {
+                tokenInput.value = savedToken;
+            }
+
+            tokenInput.addEventListener("change", (e) => {
+                const val = e.target.value.trim();
+                sessionStorage.setItem("payagent_token", val);
+                connectSSE();
+            });
+
+            // Initialize AG Grids
+            const payoutGridDiv = document.querySelector("#payoutGrid");
+            payoutGridApi = agGrid.createGrid(payoutGridDiv, {
+                columnDefs: payoutColumnDefs,
+                rowData: [],
+                pagination: true,
+                paginationPageSize: 10,
+                defaultColDef: { sortable: true, filter: true, resizable: true }
+            });
+
+            const agentGridDiv = document.querySelector("#agentGrid");
+            agentGridApi = agGrid.createGrid(agentGridDiv, {
+                columnDefs: agentColumnDefs,
+                rowData: [],
+                defaultColDef: { sortable: true, filter: true, resizable: true }
+            });
+
+            const taskGridDiv = document.querySelector("#taskGrid");
+            taskGridApi = agGrid.createGrid(taskGridDiv, {
+                columnDefs: taskColumnDefs,
+                rowData: [],
+                defaultColDef: { sortable: true, filter: true, resizable: true }
+            });
+
+            // Connect SSE & load initial data
+            connectSSE();
+        });
     </script>
 </body>
 </html>

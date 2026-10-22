@@ -7,6 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -21,9 +22,10 @@ from src.database import init_db, get_db
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel
+from src.models.budget import BudgetWindowModel
 from src.schemas.enums import TaskStatus, PayoutRequestStatus, AgentStatus
 from src.schemas.task import TaskCreate, TaskOut
-from src.schemas.agent import AgentCreate, AgentOut
+from src.schemas.agent import AgentCreate, AgentOut, AgentSummaryOut
 from src.schemas.payout import PayoutRequestIn, PayoutRequestOut
 from src.services.auth import (
     hash_api_key,
@@ -42,6 +44,7 @@ from src.services.payout_service import process_payout_submission, dispatch_payo
 from src.services.poller import poller, reconcile_all_pending
 from src.services.gate2_reviewer import sweeper as gate2_sweeper
 from src.services.webhooks import process_webhook_event
+from src.services.guardian import get_current_hour_window
 from src.mcp_server.server import mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -249,6 +252,55 @@ async def release_agent_quarantine(
     await broadcaster.publish_agent(agent_id, agent_status)
     await db.refresh(agent)
     return agent
+
+class SystemConfigOut(BaseModel):
+    mock_paypal: bool
+    mock_llm: bool
+
+@app.get("/api/v1/config", response_model=SystemConfigOut)
+async def get_system_config(
+    _: bool = Depends(require_operator_token)
+):
+    """
+    Returns non-secret runtime configuration flags (e.g. mock modes).
+    Protected by operator token. Never exposes secrets or API keys.
+    """
+    return SystemConfigOut(
+        mock_paypal=bool(settings.MOCK_PAYPAL),
+        mock_llm=bool(settings.MOCK_LLM)
+    )
+
+@app.get("/api/v1/agents", response_model=List[AgentSummaryOut])
+async def list_agents(
+    _: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Lists registered agents with hourly burn against hourly cap for the current UTC hour.
+    """
+    stmt = select(AgentModel).order_by(AgentModel.agent_id)
+    agents = (await db.execute(stmt)).scalars().all()
+    current_window = get_current_hour_window()
+
+    bw_stmt = select(BudgetWindowModel).where(BudgetWindowModel.window_start == current_window)
+    windows = {w.agent_id: w for w in (await db.execute(bw_stmt)).scalars().all()}
+
+    result = []
+    for a in agents:
+        w = windows.get(a.agent_id)
+        reserved = Decimal(str(w.reserved)) if w else Decimal("0.00")
+        spent = Decimal(str(w.spent)) if w else Decimal("0.00")
+        burn = reserved + spent
+        result.append(AgentSummaryOut(
+            agent_id=a.agent_id,
+            name=a.name,
+            status=a.status,
+            hourly_cap=a.hourly_cap,
+            current_reserved=reserved,
+            current_spent=spent,
+            current_burn=burn,
+        ))
+    return result
 
 # --- Agent Payout Request Endpoints ---
 
