@@ -15,7 +15,7 @@ from src.schemas.enums import PayoutRequestStatus
 from src.services.paypal_client import paypal_client
 from src.services.state_machine import transition_payout_request_status, ALLOWED_TRANSITIONS
 from src.services.status_mapping import PAYPAL_ITEM_TO_REQUEST_STATUS
-from src.services.events import broadcaster, _utc_iso
+from src.services.events import broadcaster, utc_iso
 
 logger = logging.getLogger("payagent.poller")
 
@@ -137,6 +137,7 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
     )
     result = await db.execute(stmt)
     pending_requests = result.scalars().all()
+    await db.commit()
 
     updated_count = 0
     now_ts = time.time()
@@ -159,14 +160,18 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
                 stmt_task = select(TaskModel).where(TaskModel.task_id == req.task_id)
                 task = (await db.execute(stmt_task)).scalar_one_or_none()
                 if task:
+                    allowed_recipient = task.allowed_recipient
+                    currency = task.currency
+                    task_title = task.title
+                    await db.commit()
                     try:
                         pp_resp = await paypal_client.create_single_payout(
                             sender_batch_id=req.sender_batch_id,
                             paypal_request_id=req.paypal_request_id,
-                            recipient_email=task.allowed_recipient,
+                            recipient_email=allowed_recipient,
                             amount=req.amount,
-                            currency=task.currency,
-                            note=f"Task payout for {task.title}"
+                            currency=currency,
+                            note=f"Task payout for {task_title}"
                         )
                         req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
                         await db.commit()
@@ -177,6 +182,8 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
                             await db.commit()
                     except Exception as exc:
                         logger.warning(f"Error attempting recovery of stuck request {req.payout_request_id}: {exc}")
+                else:
+                    await db.commit()
 
         if not req.payout_batch_id:
             continue
@@ -202,7 +209,7 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
                     updated_count += 1
                     has_update = True
                     req_status = req.status.value
-                    req_updated_at = _utc_iso(req.updated_at)
+                    req_updated_at = utc_iso(req.updated_at)
                     stmt_t = select(TaskModel).where(TaskModel.task_id == req.task_id)
                     t = (await db.execute(stmt_t)).scalar_one_or_none()
                     if t:

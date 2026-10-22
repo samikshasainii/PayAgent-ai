@@ -11,7 +11,7 @@ from src.schemas.enums import PayoutRequestStatus
 from src.services.paypal_client import paypal_client
 from src.services.state_machine import transition_payout_request_status, ALLOWED_TRANSITIONS
 from src.services.status_mapping import PAYPAL_EVENT_TO_REQUEST_STATUS, PAYPAL_ITEM_TO_REQUEST_STATUS
-from src.services.events import broadcaster, _utc_iso
+from src.services.events import broadcaster, utc_iso
 
 logger = logging.getLogger("payagent.webhooks")
 
@@ -179,7 +179,7 @@ async def process_webhook_event(
 
         req_id = req.payout_request_id
         req_status = req.status.value
-        req_updated_at = _utc_iso(req.updated_at)
+        req_updated_at = utc_iso(req.updated_at)
         stmt_t = select(TaskModel).where(TaskModel.task_id == req.task_id)
         t = (await db.execute(stmt_t)).scalar_one_or_none()
         task_id = t.task_id if t else None

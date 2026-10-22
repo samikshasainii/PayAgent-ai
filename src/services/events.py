@@ -12,7 +12,7 @@ from typing import Optional, Set
 logger = logging.getLogger(__name__)
 
 
-def _utc_iso(dt: Optional[datetime] = None) -> str:
+def utc_iso(dt: Optional[datetime] = None) -> str:
     """Format datetime as UTC ISO 8601 with trailing Z and no microseconds."""
     if dt is None:
         dt = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -62,7 +62,7 @@ class EventBroadcaster:
         """
         try:
             if not updated_at:
-                updated_at = _utc_iso()
+                updated_at = utc_iso()
 
             payload = {
                 "type": event_type,

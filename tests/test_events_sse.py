@@ -5,6 +5,7 @@ import pytest
 import httpx
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,7 @@ from src.main import app
 from src.database import async_session_factory
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
-from src.models.payout import PayoutRequestModel
+from src.models.payout import PayoutRequestModel, PayoutItemModel
 from src.models.budget import BudgetWindowModel
 from src.schemas.enums import AgentStatus, TaskStatus, PayoutRequestStatus
 from src.services.auth import hash_api_key
@@ -293,21 +294,35 @@ async def test_disconnect_subscriber_count_returns_to_zero():
 async def test_sse_auth_requires_operator_token():
     """
     Test 5: GET /api/v1/events requires ?token=<OPERATOR_TOKEN>; rejects unauthorized clients with 401.
+    Also tests non-ASCII query token and non-ASCII Bearer header on operator endpoint return 401 instead of 500.
+    Wrapped in asyncio.wait_for(timeout=10) with client timeout=5 so it never hangs if auth check is omitted.
     """
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        # Missing token
-        resp1 = await client.get("/api/v1/events")
-        assert resp1.status_code == 401
-        assert resp1.json()["detail"]["error"] == "AUTH_INVALID"
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Missing token
+            resp1 = await client.get("/api/v1/events", timeout=5.0)
+            assert resp1.status_code == 401
+            assert resp1.json()["detail"]["error"] == "AUTH_INVALID"
 
-        # Invalid token
-        resp2 = await client.get("/api/v1/events?token=invalid-secret-token")
-        assert resp2.status_code == 401
-        assert resp2.json()["detail"]["error"] == "AUTH_INVALID"
+            # Invalid token
+            resp2 = await client.get("/api/v1/events?token=invalid-secret-token", timeout=5.0)
+            assert resp2.status_code == 401
+            assert resp2.json()["detail"]["error"] == "AUTH_INVALID"
 
-        # No dangling subscribers registered
-        assert broadcaster.subscriber_count == 0
+            # Non-ASCII query token (?token=%C3%A9t%C3%A9) -> 401, not 500
+            resp3 = await client.get("/api/v1/events?token=%C3%A9t%C3%A9", timeout=5.0)
+            assert resp3.status_code == 401
+            assert resp3.json()["detail"]["error"] == "AUTH_INVALID"
+
+            # Non-ASCII Bearer token on operator endpoint -> 401, not 500
+            resp4 = await client.get("/api/v1/tasks", headers=[(b"authorization", b"Bearer " + "\u00e9t\u00e9".encode("utf-8"))], timeout=5.0)
+            assert resp4.status_code == 401
+
+            # No dangling subscribers registered
+            assert broadcaster.subscriber_count == 0
+
+    await asyncio.wait_for(run(), timeout=10.0)
 
 
 @pytest.mark.asyncio
@@ -441,3 +456,321 @@ async def test_operator_approve_sequence_and_write_ahead_submitted(monkeypatch):
             broadcaster.unsubscribe(q)
 
     await asyncio.wait_for(run(), timeout=10.0)
+
+
+@pytest.mark.asyncio
+async def test_poller_emits_after_commit_and_no_transaction_during_paypal_calls(monkeypatch):
+    """
+    Test 7: Poller reconciles SUBMITTED -> PAID for two requests.
+    Verifies that no DB transaction is open during PayPal get_payout_batch calls,
+    events are published only after commit (db.in_transaction() is False),
+    and db.in_transaction() is False when reconciliation returns.
+    """
+    async with async_session_factory() as db:
+        agent_id = f"ag-poll-{uuid.uuid4().hex[:6]}"
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="Poller Test Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("500.00")
+        )
+        current_window = get_current_hour_window()
+        budget = BudgetWindowModel(
+            agent_id=agent_id,
+            window_start=current_window,
+            reserved=Decimal("60.00"),
+            spent=Decimal("0.00")
+        )
+        db.add_all([agent, budget])
+
+        req_ids = []
+        task_ids = []
+        for i in range(2):
+            tid = f"task-poll-{i}-{uuid.uuid4().hex[:6]}"
+            rid = f"req-poll-{i}-{uuid.uuid4().hex[:6]}"
+            bid = f"BATCH-MOCK-{i}-{uuid.uuid4().hex[:6]}"
+            item_id = f"ITEM-MOCK-{i}-{uuid.uuid4().hex[:6]}"
+            task = TaskModel(
+                task_id=tid,
+                title=f"Task {i}",
+                acceptance_criteria="Criteria",
+                budget=Decimal("30.00"),
+                currency="USD",
+                allowed_recipient=f"contractor{i}@sandbox.paypal.com",
+                assigned_agent_id=agent_id,
+                required_deliverables=["report"],
+                deadline=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1),
+                status=TaskStatus.PAYOUT_IN_PROGRESS
+            )
+            req = PayoutRequestModel(
+                payout_request_id=rid,
+                task_id=tid,
+                agent_id=agent_id,
+                amount=Decimal("30.00"),
+                deliverables={"report": "doc"},
+                artifact_sha256=f"sha_{i}_{uuid.uuid4().hex}",
+                status=PayoutRequestStatus.SUBMITTED,
+                decision_reasons=["AUTO_APPROVED"],
+                sender_batch_id=f"sb_{i}_{uuid.uuid4().hex}",
+                paypal_request_id=f"pr_{i}_{uuid.uuid4().hex}",
+                payout_batch_id=bid,
+                window_start=current_window,
+            )
+            item = PayoutItemModel(
+                payout_item_id=item_id,
+                payout_request_id=rid,
+                transaction_status="PENDING"
+            )
+            paypal_client._mock_batches[bid] = {
+                "batch_header": {"payout_batch_id": bid, "batch_status": "SUCCESS"},
+                "items": [{"payout_item_id": item_id, "transaction_status": "SUCCESS"}]
+            }
+            db.add_all([task, req, item])
+            req_ids.append(rid)
+            task_ids.append(tid)
+        await db.commit()
+
+        # Spies
+        fetch_tx_states = []
+        orig_get_batch = paypal_client.get_payout_batch
+
+        async def spy_get_batch(batch_id):
+            fetch_tx_states.append(db.in_transaction())
+            return await orig_get_batch(batch_id)
+
+        monkeypatch.setattr(paypal_client, "get_payout_batch", spy_get_batch)
+
+        publish_records = []
+        orig_publish = broadcaster.publish
+
+        async def spy_publish(event_type, entity_id, status, updated_at=None):
+            publish_records.append((event_type, entity_id, status, db.in_transaction()))
+            return await orig_publish(event_type, entity_id, status, updated_at)
+
+        monkeypatch.setattr(broadcaster, "publish", spy_publish)
+
+        # Run reconciliation
+        from src.services.poller import reconcile_all_pending
+        updated = await reconcile_all_pending(db)
+        assert updated == 2
+
+        # Assert: every PayPal fetch sees False (outside any DB transaction)
+        assert len(fetch_tx_states) == 2
+        assert fetch_tx_states == [False, False]
+
+        # Assert: events are payout_request PAID and task PAID for both rows, all published with in_transaction == False
+        for rid in req_ids:
+            assert ("payout_request", rid, "PAID", False) in publish_records
+        for tid in task_ids:
+            assert ("task", tid, "PAID", False) in publish_records
+
+        # Assert: db.in_transaction() is False when it returns
+        assert db.in_transaction() is False
+
+
+@pytest.mark.asyncio
+async def test_verified_webhook_emits_and_deduplicates(monkeypatch):
+    """
+    Test 8: A verified webhook publishes payout_request PAID and task PAID.
+    A duplicate delivery (already_applied) publishes nothing.
+    """
+    from src.services.webhooks import process_webhook_event
+
+    monkeypatch.setattr(paypal_client, "verify_webhook_signature", AsyncMock(return_value=True))
+
+    agent_id = f"ag-wh-{uuid.uuid4().hex[:6]}"
+    task_id = f"task-wh-{uuid.uuid4().hex[:6]}"
+    req_id = f"req-wh-{uuid.uuid4().hex[:6]}"
+    item_id = f"ITEM-WH-{uuid.uuid4().hex[:6]}"
+    batch_id = f"BATCH-WH-{uuid.uuid4().hex[:6]}"
+    current_window = get_current_hour_window()
+
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="WH Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id=task_id,
+            title="WH Task",
+            acceptance_criteria="Criteria",
+            budget=Decimal("40.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["report"],
+            deadline=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        budget = BudgetWindowModel(
+            agent_id=agent_id,
+            window_start=current_window,
+            reserved=Decimal("40.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id=req_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            amount=Decimal("40.00"),
+            deliverables={"report": "doc"},
+            artifact_sha256=f"sha_{uuid.uuid4().hex}",
+            status=PayoutRequestStatus.SUBMITTED,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"sb_{uuid.uuid4().hex}",
+            paypal_request_id=f"pr_{uuid.uuid4().hex}",
+            payout_batch_id=batch_id,
+            window_start=current_window
+        )
+        item = PayoutItemModel(
+            payout_item_id=item_id,
+            payout_request_id=req_id,
+            transaction_status="PENDING"
+        )
+        db.add_all([agent, task, budget, req, item])
+        await db.commit()
+
+    q = broadcaster.subscribe()
+    try:
+        while not q.empty():
+            q.get_nowait()
+
+        payload = {
+            "id": f"WH-EV-{uuid.uuid4().hex}",
+            "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+            "resource": {
+                "payout_item_id": item_id,
+                "payout_batch_id": batch_id,
+                "transaction_status": "SUCCESS"
+            }
+        }
+        headers = {"paypal-transmission-id": "fake-header"}
+
+        async with async_session_factory() as db:
+            res1 = await process_webhook_event(db, payload, headers, source="paypal")
+            assert res1.get("status") == "processed"
+
+        # Check published events: payout_request PAID and task PAID
+        events = []
+        while not q.empty():
+            events.append(_parse_sse_data(q.get_nowait()))
+
+        payout_events = [e for e in events if e.get("type") == "payout_request" and e.get("id") == req_id]
+        task_events = [e for e in events if e.get("type") == "task" and e.get("id") == task_id]
+        assert len(payout_events) == 1
+        assert payout_events[0]["status"] == "PAID"
+        assert len(task_events) == 1
+        assert task_events[0]["status"] == "PAID"
+
+        # Duplicate delivery: must publish NOTHING
+        while not q.empty():
+            q.get_nowait()
+
+        payload_dup = dict(payload)
+        payload_dup["id"] = f"WH-EV-DUP-{uuid.uuid4().hex}"
+        async with async_session_factory() as db:
+            res2 = await process_webhook_event(db, payload_dup, headers, source="paypal")
+            assert res2.get("status") == "already_applied"
+
+        assert q.empty() is True
+    finally:
+        broadcaster.unsubscribe(q)
+
+
+@pytest.mark.asyncio
+async def test_webhook_commit_failure_emits_nothing(monkeypatch):
+    """
+    Test 9: When a database commit raises inside process_webhook_event,
+    no SSE event is published and the subscriber queue stays empty.
+    """
+    from src.services.webhooks import process_webhook_event
+
+    monkeypatch.setattr(paypal_client, "verify_webhook_signature", AsyncMock(return_value=True))
+
+    agent_id = f"ag-wh-fail-{uuid.uuid4().hex[:6]}"
+    task_id = f"task-wh-fail-{uuid.uuid4().hex[:6]}"
+    req_id = f"req-wh-fail-{uuid.uuid4().hex[:6]}"
+    item_id = f"ITEM-WH-FAIL-{uuid.uuid4().hex[:6]}"
+    batch_id = f"BATCH-WH-FAIL-{uuid.uuid4().hex[:6]}"
+    current_window = get_current_hour_window()
+
+    async with async_session_factory() as db:
+        agent = AgentModel(
+            agent_id=agent_id,
+            name="WH Fail Agent",
+            api_key_hash=hash_api_key("key"),
+            status=AgentStatus.ACTIVE,
+            hourly_cap=Decimal("200.00")
+        )
+        task = TaskModel(
+            task_id=task_id,
+            title="WH Fail Task",
+            acceptance_criteria="Criteria",
+            budget=Decimal("40.00"),
+            currency="USD",
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id=agent_id,
+            required_deliverables=["report"],
+            deadline=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1),
+            status=TaskStatus.PAYOUT_IN_PROGRESS
+        )
+        budget = BudgetWindowModel(
+            agent_id=agent_id,
+            window_start=current_window,
+            reserved=Decimal("40.00"),
+            spent=Decimal("0.00")
+        )
+        req = PayoutRequestModel(
+            payout_request_id=req_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            amount=Decimal("40.00"),
+            deliverables={"report": "doc"},
+            artifact_sha256=f"sha_{uuid.uuid4().hex}",
+            status=PayoutRequestStatus.SUBMITTED,
+            decision_reasons=["AUTO_APPROVED"],
+            sender_batch_id=f"sb_{uuid.uuid4().hex}",
+            paypal_request_id=f"pr_{uuid.uuid4().hex}",
+            payout_batch_id=batch_id,
+            window_start=current_window
+        )
+        item = PayoutItemModel(
+            payout_item_id=item_id,
+            payout_request_id=req_id,
+            transaction_status="PENDING"
+        )
+        db.add_all([agent, task, budget, req, item])
+        await db.commit()
+
+    q = broadcaster.subscribe()
+    try:
+        while not q.empty():
+            q.get_nowait()
+
+        payload = {
+            "id": f"WH-FAIL-{uuid.uuid4().hex}",
+            "event_type": "PAYMENT.PAYOUTS-ITEM.SUCCEEDED",
+            "resource": {
+                "payout_item_id": item_id,
+                "payout_batch_id": batch_id,
+                "transaction_status": "SUCCESS"
+            }
+        }
+        headers = {"paypal-transmission-id": "fake-header"}
+
+        async with async_session_factory() as db:
+            async def failing_commit():
+                raise RuntimeError("Simulated webhook DB commit failure")
+
+            monkeypatch.setattr(db, "commit", failing_commit)
+
+            with pytest.raises(RuntimeError, match="Simulated webhook DB commit failure"):
+                await process_webhook_event(db, payload, headers, source="paypal")
+
+        assert q.empty() is True
+    finally:
+        broadcaster.unsubscribe(q)

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from starlette.routing import Route
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.services.events import broadcaster, _utc_iso
+from src.services.events import broadcaster, utc_iso
 
 from src.config import settings
 from src.database import init_db, get_db
@@ -31,6 +31,7 @@ from src.services.auth import (
     get_authenticated_agent,
     get_authenticated_caller,
     require_operator_token,
+    operator_token_matches,
 )
 from src.services.state_machine import (
     transition_payout_request_status,
@@ -44,24 +45,28 @@ from src.services.webhooks import process_webhook_event
 from src.mcp_server.server import mcp_server
 from mcp.server.transport_security import TransportSecuritySettings
 
+class RedactTokenFilter(logging.Filter):
+    """Redacts operator token query parameters in uvicorn access logs."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if record.args:
+                record.args = tuple(
+                    re.sub(r"token=[^&\s]+", "token=***", a) if isinstance(a, str) else a
+                    for a in record.args
+                )
+            if isinstance(record.msg, str) and "token=" in record.msg:
+                record.msg = re.sub(r"token=[^&\s]+", "token=***", record.msg)
+        except Exception:
+            pass
+        return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Redact operator token query parameters in access logs
-    class RedactTokenFilter(logging.Filter):
-        def filter(self, record: logging.LogRecord) -> bool:
-            try:
-                if record.args:
-                    record.args = tuple(
-                        re.sub(r"token=[^&\s]+", "token=***", a) if isinstance(a, str) else a
-                        for a in record.args
-                    )
-                if isinstance(record.msg, str) and "token=" in record.msg:
-                    record.msg = re.sub(r"token=[^&\s]+", "token=***", record.msg)
-            except Exception:
-                pass
-            return True
-
-    logging.getLogger("uvicorn.access").addFilter(RedactTokenFilter())
+    # Redact operator token query parameters in access logs (add once only)
+    uvicorn_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactTokenFilter) for f in uvicorn_logger.filters):
+        uvicorn_logger.addFilter(RedactTokenFilter())
 
     # Production security guard
     if settings.APP_ENV == "production":
@@ -317,7 +322,7 @@ async def sse_events(
     Lightweight payloads: {type, id, status, updated_at}.
     Heartbeat ping sent every ~15s.
     """
-    if not token or not secrets.compare_digest(token, settings.OPERATOR_TOKEN):
+    if not operator_token_matches(token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "AUTH_INVALID", "message": "Invalid or missing operator token"}
@@ -377,7 +382,7 @@ async def operator_approve_request(
     await transition_payout_request_status(db, req, PayoutRequestStatus.APPROVED, decided_by="operator")
     req_id = req.payout_request_id
     req_status = req.status.value
-    req_updated_at = _utc_iso(req.updated_at)
+    req_updated_at = utc_iso(req.updated_at)
     await db.commit()
     await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
 
@@ -407,7 +412,7 @@ async def operator_reject_request(
     await transition_payout_request_status(db, req, PayoutRequestStatus.HUMAN_REJECTED, decided_by="operator")
     req_id = req.payout_request_id
     req_status = req.status.value
-    req_updated_at = _utc_iso(req.updated_at)
+    req_updated_at = utc_iso(req.updated_at)
     stmt_t = select(TaskModel).where(TaskModel.task_id == req.task_id)
     t = (await db.execute(stmt_t)).scalar_one_or_none()
     task_id = t.task_id if t else None
@@ -435,7 +440,7 @@ async def operator_cancel_request(
     cancelled_req = await cancel_unclaimed_payout_request(db, payout_request_id, operator_id="operator")
     req_id = cancelled_req.payout_request_id
     req_status = cancelled_req.status.value
-    req_updated_at = _utc_iso(cancelled_req.updated_at)
+    req_updated_at = utc_iso(cancelled_req.updated_at)
     stmt_t = select(TaskModel).where(TaskModel.task_id == cancelled_req.task_id)
     t = (await db.execute(stmt_t)).scalar_one_or_none()
     task_id = t.task_id if t else None
@@ -477,7 +482,7 @@ async def operator_resolve_blocked_request(
     await transition_payout_request_status(db, req, PayoutRequestStatus.FAILED, decided_by="operator")
     req_id = req.payout_request_id
     req_status = req.status.value
-    req_updated_at = _utc_iso(req.updated_at)
+    req_updated_at = utc_iso(req.updated_at)
     stmt_t = select(TaskModel).where(TaskModel.task_id == req.task_id)
     t = (await db.execute(stmt_t)).scalar_one_or_none()
     task_id = t.task_id if t else None

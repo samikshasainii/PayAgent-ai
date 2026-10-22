@@ -46,6 +46,10 @@ async def get_authenticated_agent(
 
     return agent
 
+def operator_token_matches(token: Optional[str]) -> bool:
+    # compare_digest raises TypeError on non-ASCII str; compare UTF-8 bytes instead
+    return bool(token) and secrets.compare_digest(token.encode("utf-8"), settings.OPERATOR_TOKEN.encode("utf-8"))
+
 def require_operator_token(
     authorization: Optional[str] = Header(None),
     x_operator_token: Optional[str] = Header(None)
@@ -56,7 +60,7 @@ def require_operator_token(
     elif x_operator_token:
         token = x_operator_token.strip()
 
-    if not token or not secrets.compare_digest(token, settings.OPERATOR_TOKEN):
+    if not operator_token_matches(token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "OPERATOR_AUTH_INVALID", "message": "Invalid or missing operator authorization"}
@@ -85,7 +89,7 @@ async def get_authenticated_caller(
         )
 
     # Check if operator
-    if secrets.compare_digest(token, settings.OPERATOR_TOKEN):
+    if operator_token_matches(token):
         return {"role": "operator", "id": "operator"}
 
     # Check if agent

@@ -16,7 +16,7 @@ from src.services.guardian import (
 from src.services.state_machine import transition_payout_request_status
 from src.services.paypal_client import paypal_client
 from src.services.poller import extract_payout_batch_id_from_error
-from src.services.events import broadcaster, _utc_iso
+from src.services.events import broadcaster, utc_iso
 
 async def dispatch_payout(
     db: AsyncSession,
@@ -35,7 +35,7 @@ async def dispatch_payout(
         await transition_payout_request_status(db, payout_req, PayoutRequestStatus.SUBMITTED)
         req_id = payout_req.payout_request_id
         req_status = payout_req.status.value
-        req_updated_at = _utc_iso(payout_req.updated_at)
+        req_updated_at = utc_iso(payout_req.updated_at)
         await db.commit()
         await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
 
@@ -84,7 +84,7 @@ async def dispatch_payout(
 
         req_id = payout_req.payout_request_id
         req_status = payout_req.status.value
-        req_updated_at = _utc_iso(payout_req.updated_at)
+        req_updated_at = utc_iso(payout_req.updated_at)
         task_id = task.task_id if task else None
         task_status = task.status.value if task else None
 
@@ -103,7 +103,7 @@ async def dispatch_payout(
             await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
             req_id = payout_req.payout_request_id
             req_status = payout_req.status.value
-            req_updated_at = _utc_iso(payout_req.updated_at)
+            req_updated_at = utc_iso(payout_req.updated_at)
             task_id = task.task_id if task else None
             task_status = task.status.value if task else None
 
@@ -127,7 +127,7 @@ async def dispatch_payout(
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
                 req_id = payout_req.payout_request_id
                 req_status = payout_req.status.value
-                req_updated_at = _utc_iso(payout_req.updated_at)
+                req_updated_at = utc_iso(payout_req.updated_at)
                 task_id = task.task_id if task else None
                 task_status = task.status.value if task else None
 
@@ -225,7 +225,7 @@ async def process_payout_submission(
         await broadcaster.publish_payout_request(
             req_id,
             req_status,
-            _utc_iso(rejected_req.updated_at)
+            utc_iso(rejected_req.updated_at)
         )
         if agent_status == AgentStatus.QUARANTINED.value:
             await broadcaster.publish_agent(agent_id, agent_status)
@@ -258,7 +258,7 @@ async def process_payout_submission(
     await broadcaster.publish_payout_request(
         req_id,
         req_status,
-        _utc_iso(payout_req.updated_at)
+        utc_iso(payout_req.updated_at)
     )
 
     # Local import: gate2_reviewer imports dispatch_payout from this module
