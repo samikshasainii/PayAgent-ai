@@ -3,7 +3,7 @@ import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from sqlalchemy import select, delete, inspect, text
+from sqlalchemy import select, delete, inspect, text, Enum as SQLEnum
 
 from src.database import async_session_factory, init_db, engine, Base
 from src.config import settings
@@ -18,6 +18,39 @@ from src.services.auth import hash_api_key
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+# Requests in these states have no PayPal work in flight; anything else blocks --reset / --recreate-schema outside mock mode
+TERMINAL_STATUSES = {
+    PayoutRequestStatus.PAID,
+    PayoutRequestStatus.FAILED,
+    PayoutRequestStatus.POLICY_REJECTED,
+    PayoutRequestStatus.HUMAN_REJECTED,
+    PayoutRequestStatus.CANCELED,
+    PayoutRequestStatus.RETURNED,
+}
+
+async def _refuse_if_inflight_payouts():
+    """
+    Fail-closed in-flight check for --recreate-schema. It must work on a drifted schema (the reason the
+    command exists), so it reads only the two columns every schema version has, via raw SQL.
+    """
+    async with engine.connect() as conn:
+        try:
+            if not await conn.run_sync(lambda c: inspect(c).has_table("payout_requests")):
+                return
+            rows = (await conn.execute(text("SELECT payout_request_id, CAST(status AS VARCHAR) FROM payout_requests"))).all()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Refusing to --recreate-schema: the in-flight payout check could not run ({type(exc).__name__}: {exc})."
+            ) from exc
+    # SQLAlchemy stores Enum members by name
+    terminal_names = {s.name for s in TERMINAL_STATUSES}
+    active_ids = [f"{pid} ({st})" for pid, st in rows if st not in terminal_names]
+    if active_ids:
+        raise RuntimeError(
+            f"Refusing to --recreate-schema outside mock mode: active non-final payout request(s) exist: {', '.join(active_ids)}. "
+            "Wait for poller reconciliation or cancel unclaimed items before resetting."
+        )
+
 async def recreate_database_schema(yes_drop_everything: bool = False):
     """Drops and recreates all tables and enums. Safe recovery command for schema drift."""
     if not yes_drop_everything:
@@ -25,40 +58,22 @@ async def recreate_database_schema(yes_drop_everything: bool = False):
 
     # Auditor safety guard: refuse if non-final requests exist outside mock mode
     if not settings.MOCK_PAYPAL:
-        async with async_session_factory() as check_db:
-            try:
-                terminal_states = {
-                    PayoutRequestStatus.PAID,
-                    PayoutRequestStatus.FAILED,
-                    PayoutRequestStatus.POLICY_REJECTED,
-                    PayoutRequestStatus.HUMAN_REJECTED,
-                    PayoutRequestStatus.CANCELED,
-                    PayoutRequestStatus.RETURNED,
-                }
-                stmt_non_final = select(PayoutRequestModel).where(
-                    PayoutRequestModel.status.not_in(terminal_states)
-                )
-                non_final_reqs = (await check_db.execute(stmt_non_final)).scalars().all()
-                if non_final_reqs:
-                    active_ids = [f"{r.payout_request_id} ({r.status.value})" for r in non_final_reqs]
-                    raise RuntimeError(
-                        f"Refusing to --recreate-schema outside mock mode: active non-final payout request(s) exist: {', '.join(active_ids)}. "
-                        "Wait for poller reconciliation or cancel unclaimed items before resetting."
-                    )
-            except RuntimeError:
-                raise
-            except Exception:
-                # If table does not exist or schema is in broken state, allow schema recreation
-                pass
+        await _refuse_if_inflight_payouts()
 
     print("Dropping all existing tables and enums...")
     async with engine.begin() as conn:
         def _drop_and_create(sync_conn):
             Base.metadata.drop_all(sync_conn)
             if sync_conn.dialect.name == "postgresql":
-                insp = inspect(sync_conn)
-                for e in insp.get_enums():
-                    sync_conn.execute(text(f'DROP TYPE IF EXISTS "{e["name"]}" CASCADE'))
+                # Only this app's enum types; a drifted DB may still hold ones drop_all no longer knows about
+                app_enums = {
+                    col.type.name
+                    for table in Base.metadata.tables.values()
+                    for col in table.columns
+                    if isinstance(col.type, SQLEnum) and col.type.name
+                }
+                for name in sorted(app_enums):
+                    sync_conn.execute(text(f'DROP TYPE IF EXISTS "{name}" CASCADE'))
             Base.metadata.create_all(sync_conn)
         await conn.run_sync(_drop_and_create)
     print("Schema recreation complete.")
@@ -90,17 +105,9 @@ async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_
 
             # Auditor safety guard: refuse reset if non-final requests exist outside mock mode
             if not settings.MOCK_PAYPAL:
-                terminal_states = {
-                    PayoutRequestStatus.PAID,
-                    PayoutRequestStatus.FAILED,
-                    PayoutRequestStatus.POLICY_REJECTED,
-                    PayoutRequestStatus.HUMAN_REJECTED,
-                    PayoutRequestStatus.CANCELED,
-                    PayoutRequestStatus.RETURNED,
-                }
                 stmt_non_final = select(PayoutRequestModel).where(
                     PayoutRequestModel.task_id.in_(demo_task_ids),
-                    PayoutRequestModel.status.not_in(terminal_states)
+                    PayoutRequestModel.status.not_in(TERMINAL_STATUSES)
                 )
                 non_final_reqs = (await db.execute(stmt_non_final)).scalars().all()
                 if non_final_reqs:

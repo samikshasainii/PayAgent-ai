@@ -184,7 +184,7 @@ Request status is derived from the **item-level** `transaction_status`, never fr
 
 ### 4.4 Schema changes after deploy
 
-The database schema is frozen as of M3.6 (commit `89c765f`). Because `init_db()` uses `create_all`, existing tables and enum types are never altered automatically. Any subsequent schema change requires:
+The database schema is frozen as of M3.6 (schema at commit `89c765f`; snapshot format, including enum values, constraints and indexes, at `b51c849`). Because `init_db()` uses `create_all`, existing tables and enum types are never altered automatically. Any subsequent schema change requires:
 1. Updating the SQLAlchemy model definition.
 2. Regenerating the snapshot via `python -m tests.test_schema_freeze --write` (or `python scripts/snapshot_schema.py`).
 3. Running `python -m src.seed --recreate-schema --yes-drop-everything` against the hosted `DATABASE_URL`.

@@ -68,6 +68,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 async def init_db():
+    # Register every model on Base.metadata; otherwise create_all and the schema guard below see nothing
+    import src.models  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -90,11 +93,13 @@ async def init_db():
                     for col in table.columns:
                         if isinstance(col.type, sqlalchemy.Enum):
                             enum_name = (col.type.name or "").lower()
-                            if enum_name in db_enums:
-                                existing_labels = db_enums[enum_name]
-                                for label in col.type.enums:
-                                    if label not in existing_labels:
-                                        missing.append((f"enum '{enum_name}'", f"missing label '{label}'"))
+                            if enum_name not in db_enums:
+                                missing.append((f"enum '{enum_name}'", "missing type"))
+                                continue
+                            existing_labels = db_enums[enum_name]
+                            for label in col.type.enums:
+                                if label not in existing_labels:
+                                    missing.append((f"enum '{enum_name}'", f"missing label '{label}'"))
             return missing
 
         missing = await conn.run_sync(_verify_columns)
@@ -109,5 +114,6 @@ async def init_db():
                 )
                 raise RuntimeError(
                     f"Startup schema check failed in production: {missing_str}. "
-                    "Schema is frozen; drop and recreate hosted DB, then seed."
+                    "Schema is frozen (ARCHITECTURE.md section 4.4); recover with "
+                    "'python -m src.seed --recreate-schema --yes-drop-everything'."
                 )
