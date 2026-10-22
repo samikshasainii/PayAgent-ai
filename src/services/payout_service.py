@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel, PayoutItemModel
-from src.schemas.enums import PayoutRequestStatus, DecisionReason, TaskStatus
+from src.schemas.enums import PayoutRequestStatus, DecisionReason, TaskStatus, AgentStatus
 from src.schemas.payout import PayoutRequestIn
 from src.services.guardian import (
     compute_artifact_sha256,
@@ -16,6 +16,7 @@ from src.services.guardian import (
 from src.services.state_machine import transition_payout_request_status
 from src.services.paypal_client import paypal_client
 from src.services.poller import extract_payout_batch_id_from_error
+from src.services.events import broadcaster, _utc_iso
 
 async def dispatch_payout(
     db: AsyncSession,
@@ -32,8 +33,11 @@ async def dispatch_payout(
     # Write-ahead SUBMITTED: commit before calling PayPal so a crash leaves request SUBMITTED for the poller
     if payout_req.status != PayoutRequestStatus.SUBMITTED:
         await transition_payout_request_status(db, payout_req, PayoutRequestStatus.SUBMITTED)
+        req_id = payout_req.payout_request_id
+        req_status = payout_req.status.value
+        req_updated_at = _utc_iso(payout_req.updated_at)
         await db.commit()
-        await db.refresh(payout_req)
+        await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
 
     try:
         pp_resp = await paypal_client.create_single_payout(
@@ -47,7 +51,6 @@ async def dispatch_payout(
         # Commit payout_batch_id write-ahead immediately so poller has it even if subsequent item transitions fail
         payout_req.payout_batch_id = pp_resp["batch_header"]["payout_batch_id"]
         await db.commit()
-        await db.refresh(payout_req)
 
         if "items" in pp_resp and len(pp_resp["items"]) > 0:
             item_data = pp_resp["items"][0]
@@ -79,7 +82,16 @@ async def dispatch_payout(
             elif item_status == "RETURNED":
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.RETURNED)
 
+        req_id = payout_req.payout_request_id
+        req_status = payout_req.status.value
+        req_updated_at = _utc_iso(payout_req.updated_at)
+        task_id = task.task_id if task else None
+        task_status = task.status.value if task else None
+
         await db.commit()
+        await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
+        if task_id and task_status:
+            await broadcaster.publish_task(task_id, task_status)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 429:
             # Stated on purpose: PayPal 429 rate limit exceeded after all retry attempts.
@@ -89,7 +101,16 @@ async def dispatch_payout(
                 f"PAYPAL_RATE_LIMIT_EXCEEDED: PayPal 429 rate limit after retries: {exc.response.text}"
             ]
             await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+            req_id = payout_req.payout_request_id
+            req_status = payout_req.status.value
+            req_updated_at = _utc_iso(payout_req.updated_at)
+            task_id = task.task_id if task else None
+            task_status = task.status.value if task else None
+
             await db.commit()
+            await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
+            if task_id and task_status:
+                await broadcaster.publish_task(task_id, task_status)
         elif 400 <= exc.response.status_code < 500:
             # Check if this 4xx error is duplicate sender_batch_id (money was already sent!)
             batch_id = extract_payout_batch_id_from_error(exc.response.text)
@@ -104,7 +125,16 @@ async def dispatch_payout(
                 # Definite PayPal rejection (4xx): route through state machine to release budget & reopen task
                 payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_ERROR: {exc.response.text}"]
                 await transition_payout_request_status(db, payout_req, PayoutRequestStatus.FAILED)
+                req_id = payout_req.payout_request_id
+                req_status = payout_req.status.value
+                req_updated_at = _utc_iso(payout_req.updated_at)
+                task_id = task.task_id if task else None
+                task_status = task.status.value if task else None
+
                 await db.commit()
+                await broadcaster.publish_payout_request(req_id, req_status, req_updated_at)
+                if task_id and task_status:
+                    await broadcaster.publish_task(task_id, task_status)
         else:
             # 5xx error: transient/ambiguous failure; keep SUBMITTED for reconciliation
             payout_req.decision_reasons = (payout_req.decision_reasons or []) + [f"PAYPAL_AMBIGUOUS_ERROR: {exc.response.text}"]
@@ -186,8 +216,19 @@ async def process_payout_submission(
             decided_by="guardian_gate1"
         )
         db.add(rejected_req)
+        req_id = rejected_req.payout_request_id
+        req_status = rejected_req.status.value
+        agent_id = agent.agent_id
+        agent_status = agent.status.value
         await db.commit()
         await db.refresh(rejected_req)
+        await broadcaster.publish_payout_request(
+            req_id,
+            req_status,
+            _utc_iso(rejected_req.updated_at)
+        )
+        if agent_status == AgentStatus.QUARANTINED.value:
+            await broadcaster.publish_agent(agent_id, agent_status)
         return False, http_code, reason_code, rejected_req
 
     # Gate 1 passed: persist as RECEIVED and hand off to the asynchronous Gate 2 reviewer
@@ -206,8 +247,19 @@ async def process_payout_submission(
         decided_by="guardian_gate1"
     )
     db.add(payout_req)
+    req_id = payout_req.payout_request_id
+    req_status = payout_req.status.value
+    task_id = task.task_id if task else None
+    task_status = task.status.value if task else None
     await db.commit()
     await db.refresh(payout_req)
+    if task_id and task_status:
+        await broadcaster.publish_task(task_id, task_status)
+    await broadcaster.publish_payout_request(
+        req_id,
+        req_status,
+        _utc_iso(payout_req.updated_at)
+    )
 
     # Local import: gate2_reviewer imports dispatch_payout from this module
     from src.services.gate2_reviewer import schedule_review

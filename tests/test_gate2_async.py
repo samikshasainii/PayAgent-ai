@@ -18,7 +18,7 @@ from src.schemas.enums import TaskStatus, PayoutRequestStatus, AgentStatus, Deci
 from src.schemas.llm import LLMVerdict
 from src.services import gate2_reviewer
 from src.services.guardian import get_current_hour_window
-from conftest import settle
+from conftest import settle, wait_until
 
 OP = {"Authorization": f"Bearer {settings.OPERATOR_TOKEN}"}
 PASS = LLMVerdict(passed=True, confidence=0.95, reasoning="Criteria met.")
@@ -67,17 +67,6 @@ async def task_status(task_id):
 
 def client():
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
-
-async def wait_until(predicate, timeout=5.0, interval=0.01) -> float:
-    """Polls until predicate() is true; returns the seconds waited. A fixed sleep is too short on Postgres,
-    where each NullPool session opens a new connection."""
-    t0 = time.monotonic()
-    while not predicate():
-        if time.monotonic() - t0 > timeout:
-            raise AssertionError(f"condition not met within {timeout}s")
-        await asyncio.sleep(interval)
-    return time.monotonic() - t0
-
 
 @pytest.mark.asyncio
 async def test_submission_returns_202_before_slow_gate2(monkeypatch):

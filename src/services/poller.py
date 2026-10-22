@@ -15,6 +15,7 @@ from src.schemas.enums import PayoutRequestStatus
 from src.services.paypal_client import paypal_client
 from src.services.state_machine import transition_payout_request_status, ALLOWED_TRANSITIONS
 from src.services.status_mapping import PAYPAL_ITEM_TO_REQUEST_STATUS
+from src.services.events import broadcaster, _utc_iso
 
 logger = logging.getLogger("payagent.poller")
 
@@ -190,10 +191,33 @@ async def reconcile_all_pending(db: AsyncSession) -> int:
         # Open short write transaction only for DB mutations
         req_id = req.payout_request_id
         try:
+            has_update = False
+            task_id = None
+            task_status = None
+            req_status = None
+            req_updated_at = None
+
             async with db.begin_nested():
                 if await apply_batch_reconciliation(db, req, batch_data):
                     updated_count += 1
+                    has_update = True
+                    req_status = req.status.value
+                    req_updated_at = _utc_iso(req.updated_at)
+                    stmt_t = select(TaskModel).where(TaskModel.task_id == req.task_id)
+                    t = (await db.execute(stmt_t)).scalar_one_or_none()
+                    if t:
+                        task_id = t.task_id
+                        task_status = t.status.value
+
             await db.commit()
+            if has_update:
+                await broadcaster.publish_payout_request(
+                    req_id,
+                    req_status,
+                    req_updated_at
+                )
+                if task_id and task_status:
+                    await broadcaster.publish_task(task_id, task_status)
         except Exception as exc:
             await db.rollback()
             logger.error(f"Poller failed to reconcile request {req_id}: {exc}", exc_info=True)

@@ -45,3 +45,20 @@ async def settle(client, submit_resp, headers):
     resp = await client.get(f"/api/v1/payout-requests/{submit_resp.json()['payout_request_id']}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+async def wait_until(predicate, timeout: float = 5.0, interval: float = 0.01):
+    """Polls predicate until it returns truthy or timeout expires. Returns elapsed seconds if result is True, else the truthy result."""
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    while True:
+        res = predicate()
+        if asyncio.iscoroutine(res):
+            res = await res
+        if res:
+            if res is True:
+                return loop.time() - start
+            return res
+        if loop.time() - start > timeout:
+            raise TimeoutError(f"wait_until timed out after {timeout}s")
+        await asyncio.sleep(interval)

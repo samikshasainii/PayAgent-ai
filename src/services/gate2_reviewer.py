@@ -14,6 +14,7 @@ from src.services.guardian import evaluate_gate2_and_decision, record_incident_a
 from src.services.proof_review import review_proof_of_task
 from src.services.state_machine import ALLOWED_TRANSITIONS
 from src.services.payout_service import dispatch_payout
+from src.services.events import broadcaster, _utc_iso
 
 logger = logging.getLogger("payagent.gate2_reviewer")
 
@@ -115,7 +116,20 @@ async def run_gate2_review(payout_request_id: str) -> Optional[PayoutRequestStat
                     reason=DecisionReason.PROOF_DOUBTFUL.value,
                     payout_request_id=payout_request_id
                 )
+            req_id = req.payout_request_id
+            req_status = req.status.value
+            req_updated_at = _utc_iso(req.updated_at)
+            agent_id = agent.agent_id
+            agent_status = agent.status.value
+
             await db.commit()
+            await broadcaster.publish_payout_request(
+                req_id,
+                req_status,
+                req_updated_at
+            )
+            if agent_status == AgentStatus.QUARANTINED.value:
+                await broadcaster.publish_agent(agent_id, agent_status)
 
         # If auto-approved, dispatch to PayPal (write-ahead SUBMITTED inside dispatch_payout)
         if req.status == PayoutRequestStatus.APPROVED:
