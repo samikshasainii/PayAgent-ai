@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import AsyncGenerator
+import sqlalchemy
 from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -82,15 +83,31 @@ async def init_db():
                 for col in table.columns:
                     if col.name not in live_cols:
                         missing.append((table_name, col.name))
+
+            if sync_conn.dialect.name == "postgresql" and hasattr(inspector, "get_enums"):
+                db_enums = {e["name"].lower(): set(e["labels"]) for e in inspector.get_enums()}
+                for table in Base.metadata.tables.values():
+                    for col in table.columns:
+                        if isinstance(col.type, sqlalchemy.Enum):
+                            enum_name = (col.type.name or "").lower()
+                            if enum_name in db_enums:
+                                existing_labels = db_enums[enum_name]
+                                for label in col.type.enums:
+                                    if label not in existing_labels:
+                                        missing.append((f"enum '{enum_name}'", f"missing label '{label}'"))
             return missing
 
         missing = await conn.run_sync(_verify_columns)
         if missing:
-            for tbl, col in missing:
-                logger.error(f"Live database schema is missing expected column: table='{tbl}', column='{col}'")
+            for item1, item2 in missing:
+                desc = f"{item1} {item2}" if item1.startswith("enum ") else f"table='{item1}', column='{item2}'"
+                logger.error(f"Live database schema mismatch: {desc}")
             if settings.APP_ENV == "production":
-                missing_str = ", ".join(f"{t}.{c}" for t, c in missing)
+                missing_str = ", ".join(
+                    f"{t} {c}" if t.startswith("enum ") else f"{t}.{c}"
+                    for t, c in missing
+                )
                 raise RuntimeError(
-                    f"Startup schema check failed in production: missing column(s): {missing_str}. "
+                    f"Startup schema check failed in production: {missing_str}. "
                     "Schema is frozen; drop and recreate hosted DB, then seed."
                 )

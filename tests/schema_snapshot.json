@@ -1,286 +1,593 @@
 {
-  "agent_incidents": [
-    [
-      "agent_id",
-      "VARCHAR(64)",
-      false
+  "agent_incidents": {
+    "columns": {
+      "agent_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "created_at": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      },
+      "id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "INTEGER",
+        "unique": false
+      },
+      "payout_request_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "reason_code": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      }
+    },
+    "indexes": [
+      [
+        "ix_agent_incidents_agent_id",
+        [
+          "agent_id"
+        ],
+        false
+      ],
+      [
+        "ix_agent_incidents_created_at",
+        [
+          "created_at"
+        ],
+        false
+      ]
     ],
-    [
-      "created_at",
-      "DATETIME",
-      false
+    "unique_constraints": []
+  },
+  "agents": {
+    "columns": {
+      "agent_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "api_key_hash": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "hourly_cap": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "NUMERIC(10, 2)",
+        "unique": false
+      },
+      "name": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(128)",
+        "unique": false
+      },
+      "status": {
+        "enum_values": [
+          "ACTIVE",
+          "QUARANTINED"
+        ],
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(11)",
+        "unique": false
+      }
+    },
+    "indexes": [
+      [
+        "ix_agents_api_key_hash",
+        [
+          "api_key_hash"
+        ],
+        false
+      ]
     ],
-    [
-      "id",
-      "INTEGER",
-      false
+    "unique_constraints": []
+  },
+  "budget_windows": {
+    "columns": {
+      "agent_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "reserved": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "NUMERIC(10, 2)",
+        "unique": false
+      },
+      "spent": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "NUMERIC(10, 2)",
+        "unique": false
+      },
+      "window_start": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(16)",
+        "unique": false
+      }
+    },
+    "indexes": [],
+    "unique_constraints": []
+  },
+  "payout_items": {
+    "columns": {
+      "errors": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "payout_item_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "payout_request_id": {
+        "foreign_keys": [
+          "payout_requests.payout_request_id"
+        ],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "transaction_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "transaction_status": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "updated_at": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      }
+    },
+    "indexes": [
+      [
+        "ix_payout_items_payout_request_id",
+        [
+          "payout_request_id"
+        ],
+        false
+      ]
     ],
-    [
-      "payout_request_id",
-      "VARCHAR(64)",
-      true
+    "unique_constraints": []
+  },
+  "payout_requests": {
+    "columns": {
+      "agent_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "amount": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "NUMERIC(10, 2)",
+        "unique": false
+      },
+      "artifact_sha256": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "created_at": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      },
+      "decided_by": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "decision_reasons": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "deliverables": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "llm_verdict": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "payout_batch_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": true,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "payout_request_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "paypal_request_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": true
+      },
+      "risk_score": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": true,
+        "primary_key": false,
+        "type": "FLOAT",
+        "unique": false
+      },
+      "sender_batch_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": true
+      },
+      "status": {
+        "enum_values": [
+          "APPROVED",
+          "BLOCKED",
+          "CANCELED",
+          "FAILED",
+          "HUMAN_REJECTED",
+          "ONHOLD",
+          "PAID",
+          "PENDING_HUMAN_APPROVAL",
+          "POLICY_REJECTED",
+          "RECEIVED",
+          "RETURNED",
+          "REVIEWED",
+          "SUBMITTED",
+          "UNCLAIMED"
+        ],
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(22)",
+        "unique": false
+      },
+      "task_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "updated_at": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      },
+      "window_start": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": true,
+        "primary_key": false,
+        "type": "VARCHAR(32)",
+        "unique": false
+      }
+    },
+    "indexes": [
+      [
+        "ix_payout_requests_agent_id",
+        [
+          "agent_id"
+        ],
+        false
+      ],
+      [
+        "ix_payout_requests_artifact_sha256",
+        [
+          "artifact_sha256"
+        ],
+        false
+      ],
+      [
+        "ix_payout_requests_payout_batch_id",
+        [
+          "payout_batch_id"
+        ],
+        false
+      ],
+      [
+        "ix_payout_requests_paypal_request_id",
+        [
+          "paypal_request_id"
+        ],
+        true
+      ],
+      [
+        "ix_payout_requests_sender_batch_id",
+        [
+          "sender_batch_id"
+        ],
+        true
+      ],
+      [
+        "ix_payout_requests_task_id",
+        [
+          "task_id"
+        ],
+        false
+      ],
+      [
+        "ix_payout_requests_window_start",
+        [
+          "window_start"
+        ],
+        false
+      ]
     ],
-    [
-      "reason_code",
-      "VARCHAR(64)",
-      false
-    ]
-  ],
-  "agents": [
-    [
-      "agent_id",
-      "VARCHAR(64)",
-      false
+    "unique_constraints": []
+  },
+  "tasks": {
+    "columns": {
+      "acceptance_criteria": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "TEXT",
+        "unique": false
+      },
+      "allowed_recipient": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(256)",
+        "unique": false
+      },
+      "assigned_agent_id": {
+        "foreign_keys": [],
+        "index": true,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "budget": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "NUMERIC(10, 2)",
+        "unique": false
+      },
+      "currency": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(3)",
+        "unique": false
+      },
+      "deadline": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      },
+      "required_deliverables": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "status": {
+        "enum_values": [
+          "CANCELLED",
+          "OPEN",
+          "PAID",
+          "PAYOUT_IN_PROGRESS"
+        ],
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(18)",
+        "unique": false
+      },
+      "task_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(64)",
+        "unique": false
+      },
+      "title": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(256)",
+        "unique": false
+      }
+    },
+    "indexes": [
+      [
+        "ix_tasks_assigned_agent_id",
+        [
+          "assigned_agent_id"
+        ],
+        false
+      ]
     ],
-    [
-      "api_key_hash",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "hourly_cap",
-      "NUMERIC(10, 2)",
-      false
-    ],
-    [
-      "name",
-      "VARCHAR(128)",
-      false
-    ],
-    [
-      "status",
-      "VARCHAR(11)",
-      false
-    ]
-  ],
-  "budget_windows": [
-    [
-      "agent_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "reserved",
-      "NUMERIC(10, 2)",
-      false
-    ],
-    [
-      "spent",
-      "NUMERIC(10, 2)",
-      false
-    ],
-    [
-      "window_start",
-      "VARCHAR(16)",
-      false
-    ]
-  ],
-  "payout_items": [
-    [
-      "errors",
-      "JSON",
-      true
-    ],
-    [
-      "payout_item_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "payout_request_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "transaction_id",
-      "VARCHAR(64)",
-      true
-    ],
-    [
-      "transaction_status",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "updated_at",
-      "DATETIME",
-      false
-    ]
-  ],
-  "payout_requests": [
-    [
-      "agent_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "amount",
-      "NUMERIC(10, 2)",
-      false
-    ],
-    [
-      "artifact_sha256",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "created_at",
-      "DATETIME",
-      false
-    ],
-    [
-      "decided_by",
-      "VARCHAR(64)",
-      true
-    ],
-    [
-      "decision_reasons",
-      "JSON",
-      false
-    ],
-    [
-      "deliverables",
-      "JSON",
-      false
-    ],
-    [
-      "llm_verdict",
-      "JSON",
-      true
-    ],
-    [
-      "payout_batch_id",
-      "VARCHAR(64)",
-      true
-    ],
-    [
-      "payout_request_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "paypal_request_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "risk_score",
-      "FLOAT",
-      true
-    ],
-    [
-      "sender_batch_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "status",
-      "VARCHAR(22)",
-      false
-    ],
-    [
-      "task_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "updated_at",
-      "DATETIME",
-      false
-    ],
-    [
-      "window_start",
-      "VARCHAR(32)",
-      true
-    ]
-  ],
-  "tasks": [
-    [
-      "acceptance_criteria",
-      "TEXT",
-      false
-    ],
-    [
-      "allowed_recipient",
-      "VARCHAR(256)",
-      false
-    ],
-    [
-      "assigned_agent_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "budget",
-      "NUMERIC(10, 2)",
-      false
-    ],
-    [
-      "currency",
-      "VARCHAR(3)",
-      false
-    ],
-    [
-      "deadline",
-      "DATETIME",
-      false
-    ],
-    [
-      "required_deliverables",
-      "JSON",
-      false
-    ],
-    [
-      "status",
-      "VARCHAR(18)",
-      false
-    ],
-    [
-      "task_id",
-      "VARCHAR(64)",
-      false
-    ],
-    [
-      "title",
-      "VARCHAR(256)",
-      false
-    ]
-  ],
-  "webhook_events": [
-    [
-      "event_id",
-      "VARCHAR(128)",
-      false
-    ],
-    [
-      "event_type",
-      "VARCHAR(128)",
-      false
-    ],
-    [
-      "raw",
-      "JSON",
-      false
-    ],
-    [
-      "received_at",
-      "DATETIME",
-      false
-    ],
-    [
-      "resource_id",
-      "VARCHAR(128)",
-      false
-    ],
-    [
-      "source",
-      "VARCHAR(32)",
-      false
-    ],
-    [
-      "verified",
-      "BOOLEAN",
-      false
-    ]
-  ]
+    "unique_constraints": []
+  },
+  "webhook_events": {
+    "columns": {
+      "event_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": true,
+        "type": "VARCHAR(128)",
+        "unique": false
+      },
+      "event_type": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(128)",
+        "unique": false
+      },
+      "raw": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "JSON",
+        "unique": false
+      },
+      "received_at": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "DATETIME",
+        "unique": false
+      },
+      "resource_id": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(128)",
+        "unique": false
+      },
+      "source": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "VARCHAR(32)",
+        "unique": false
+      },
+      "verified": {
+        "foreign_keys": [],
+        "index": false,
+        "nullable": false,
+        "primary_key": false,
+        "type": "BOOLEAN",
+        "unique": false
+      }
+    },
+    "indexes": [],
+    "unique_constraints": []
+  }
 }

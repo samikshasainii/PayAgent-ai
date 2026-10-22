@@ -184,10 +184,10 @@ Request status is derived from the **item-level** `transaction_status`, never fr
 
 ### 4.4 Schema changes after deploy
 
-The database schema is frozen as of this commit (M3.6). Because `init_db()` uses `create_all`, existing tables are never altered automatically. Any subsequent schema change requires:
-1. Deliberately updating the SQLAlchemy model and the checked-in snapshot in `tests/schema_snapshot.json`.
-2. Dropping and recreating the hosted database (or wiping tables).
-3. Re-populating data via `python -m src.seed --reset`.
+The database schema is frozen as of M3.6 (commit `89c765f`). Because `init_db()` uses `create_all`, existing tables and enum types are never altered automatically. Any subsequent schema change requires:
+1. Updating the SQLAlchemy model definition.
+2. Regenerating the snapshot via `python -m tests.test_schema_freeze --write` (or `python scripts/snapshot_schema.py`).
+3. Running `python -m src.seed --recreate-schema --yes-drop-everything` against the hosted `DATABASE_URL`.
 
 This policy is safe and acceptable because all hosted data is strictly demo-only and PayPal sandbox-only; no long-term persistence across deployments is required.
 

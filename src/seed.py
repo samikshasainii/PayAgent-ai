@@ -3,9 +3,9 @@ import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, inspect, text
 
-from src.database import async_session_factory, init_db
+from src.database import async_session_factory, init_db, engine, Base
 from src.config import settings
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
@@ -18,10 +18,59 @@ from src.services.auth import hash_api_key
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
-async def seed_database(reset: bool = False):
+async def recreate_database_schema(yes_drop_everything: bool = False):
+    """Drops and recreates all tables and enums. Safe recovery command for schema drift."""
+    if not yes_drop_everything:
+        raise RuntimeError("Refusing to --recreate-schema without --yes-drop-everything confirmation flag.")
+
+    # Auditor safety guard: refuse if non-final requests exist outside mock mode
+    if not settings.MOCK_PAYPAL:
+        async with async_session_factory() as check_db:
+            try:
+                terminal_states = {
+                    PayoutRequestStatus.PAID,
+                    PayoutRequestStatus.FAILED,
+                    PayoutRequestStatus.POLICY_REJECTED,
+                    PayoutRequestStatus.HUMAN_REJECTED,
+                    PayoutRequestStatus.CANCELED,
+                    PayoutRequestStatus.RETURNED,
+                }
+                stmt_non_final = select(PayoutRequestModel).where(
+                    PayoutRequestModel.status.not_in(terminal_states)
+                )
+                non_final_reqs = (await check_db.execute(stmt_non_final)).scalars().all()
+                if non_final_reqs:
+                    active_ids = [f"{r.payout_request_id} ({r.status.value})" for r in non_final_reqs]
+                    raise RuntimeError(
+                        f"Refusing to --recreate-schema outside mock mode: active non-final payout request(s) exist: {', '.join(active_ids)}. "
+                        "Wait for poller reconciliation or cancel unclaimed items before resetting."
+                    )
+            except RuntimeError:
+                raise
+            except Exception:
+                # If table does not exist or schema is in broken state, allow schema recreation
+                pass
+
+    print("Dropping all existing tables and enums...")
+    async with engine.begin() as conn:
+        def _drop_and_create(sync_conn):
+            Base.metadata.drop_all(sync_conn)
+            if sync_conn.dialect.name == "postgresql":
+                insp = inspect(sync_conn)
+                for e in insp.get_enums():
+                    sync_conn.execute(text(f'DROP TYPE IF EXISTS "{e["name"]}" CASCADE'))
+            Base.metadata.create_all(sync_conn)
+        await conn.run_sync(_drop_and_create)
+    print("Schema recreation complete.")
+
+
+async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_drop_everything: bool = False):
     """Populates initial demo agents and tasks for local review and sandbox testing."""
-    print("Initializing database tables...")
-    await init_db()
+    if recreate_schema:
+        await recreate_database_schema(yes_drop_everything=yes_drop_everything)
+    else:
+        print("Initializing database tables...")
+        await init_db()
 
     async with async_session_factory() as db:
         # P5: Determine credentials posture
@@ -33,8 +82,8 @@ async def seed_database(reset: bool = False):
             "agent-data-labeler-02": secrets.token_urlsafe(32) if is_prod else "pa_demo_agent_key_secret_456"
         }
 
-        # P6: Reset state if requested
-        if reset:
+        # P6: Reset state if requested (or when recreate_schema ran)
+        if reset and not recreate_schema:
             print("Resetting existing demo tasks, payout requests, and circuit-breaker incidents...")
             demo_task_ids = ["task-pr-audit-101", "task-high-value-102", "task-dataset-curation-103"]
             demo_agent_ids = list(demo_agents_keys.keys())
@@ -180,5 +229,13 @@ async def seed_database(reset: bool = False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed PayAgent Demo Data")
     parser.add_argument("--reset", action="store_true", help="Clear previous demo tasks, runs, and incidents before seeding")
+    parser.add_argument("--recreate-schema", action="store_true", help="Drop and recreate all tables and enums before seeding (recovery command for schema drift)")
+    parser.add_argument("--yes-drop-everything", action="store_true", help="Confirmation flag required for --recreate-schema")
     args = parser.parse_args()
-    asyncio.run(seed_database(reset=args.reset))
+    asyncio.run(
+        seed_database(
+            reset=args.reset,
+            recreate_schema=args.recreate_schema,
+            yes_drop_everything=args.yes_drop_everything,
+        )
+    )
