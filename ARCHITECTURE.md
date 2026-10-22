@@ -182,6 +182,15 @@ Request status is derived from the **item-level** `transaction_status`, never fr
 
 **Agent:** `ACTIVE ⇄ QUARANTINED` (entered automatically via circuit breaker; exited only by operator action `POST /api/v1/agents/{id}/release`).
 
+### 4.4 Schema changes after deploy
+
+The database schema is frozen as of this commit (M3.6). Because `init_db()` uses `create_all`, existing tables are never altered automatically. Any subsequent schema change requires:
+1. Deliberately updating the SQLAlchemy model and the checked-in snapshot in `tests/schema_snapshot.json`.
+2. Dropping and recreating the hosted database (or wiping tables).
+3. Re-populating data via `python -m src.seed --reset`.
+
+This policy is safe and acceptable because all hosted data is strictly demo-only and PayPal sandbox-only; no long-term persistence across deployments is required.
+
 ---
 
 ## 5. Guardian Rules

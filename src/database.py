@@ -1,10 +1,13 @@
+import logging
 import os
 from typing import AsyncGenerator
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
 from src.config import settings
+
+logger = logging.getLogger(__name__)
 
 def get_database_url() -> str:
     url = settings.DATABASE_URL or "sqlite+aiosqlite:///./data/processed/payagent.db"
@@ -66,3 +69,28 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _verify_columns(sync_conn):
+            inspector = inspect(sync_conn)
+            existing_tables = set(inspector.get_table_names())
+            missing = []
+            for table_name, table in Base.metadata.tables.items():
+                if table_name not in existing_tables:
+                    missing.append((table_name, "<entire table>"))
+                    continue
+                live_cols = {col["name"] for col in inspector.get_columns(table_name)}
+                for col in table.columns:
+                    if col.name not in live_cols:
+                        missing.append((table_name, col.name))
+            return missing
+
+        missing = await conn.run_sync(_verify_columns)
+        if missing:
+            for tbl, col in missing:
+                logger.error(f"Live database schema is missing expected column: table='{tbl}', column='{col}'")
+            if settings.APP_ENV == "production":
+                missing_str = ", ".join(f"{t}.{c}" for t, c in missing)
+                raise RuntimeError(
+                    f"Startup schema check failed in production: missing column(s): {missing_str}. "
+                    "Schema is frozen; drop and recreate hosted DB, then seed."
+                )
