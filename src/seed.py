@@ -246,8 +246,12 @@ async def seed_database(
                 db.add(task)
                 print(f"  [+] Seeded task: {t_info['task_id']} (${t_info['budget']}) -> Assigned to {t_info['assigned_agent_id']}")
             else:
-                existing.status = TaskStatus.OPEN
-                print(f"  [.] Task already present: {t_info['task_id']} (reset to OPEN)")
+                if is_prod:
+                    status_name = existing.status.value if hasattr(existing.status, "value") else str(existing.status)
+                    print(f"  [.] Task already present: {t_info['task_id']} (left as {status_name})")
+                else:
+                    existing.status = TaskStatus.OPEN
+                    print(f"  [.] Task already present: {t_info['task_id']} (reset to OPEN)")
 
         await db.commit()
 

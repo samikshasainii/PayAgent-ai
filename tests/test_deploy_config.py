@@ -111,70 +111,120 @@ def test_supabase_session_pooler_asyncpg_url_parsing():
     engine = create_async_engine(supabase_url)
     assert engine is not None
 
-def test_seed_hosted_refuses_flags(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py", "--reset"])
-    with pytest.raises(SystemExit) as exc:
-        seed_hosted.main()
-    assert exc.value.code == 2
+VALID_HOSTED_ENV = {
+    "DATABASE_URL": "postgresql+asyncpg://postgres.ref:secretpass123@aws-0-us-east-1.pooler.supabase.com:5432/postgres?ssl=require",
+    "APP_ENV": "production",
+    "OPERATOR_TOKEN": "secretoperator12345678901234567890123",
+    "SANDBOX_RECIPIENT_EMAIL": "sb-contractor-live@personal.example.com",
+}
 
-def test_seed_hosted_refuses_when_env_not_gitignored(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py"])
+def _apply_valid_seed_hosted_preconditions(monkeypatch, env_overrides=None):
+    """Sets all preconditions to valid so refusal tests isolate strictly the condition under test."""
+    monkeypatch.setattr(seed_hosted, "__package__", "scripts")
+    monkeypatch.setattr(sys, "argv", ["scripts.seed_hosted"])
+    monkeypatch.setattr(os.path, "isfile", lambda p: True if p == ".env.hosted" else os.path.exists(p))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 0})())
+
+    env = VALID_HOSTED_ENV.copy()
+    if env_overrides:
+        env.update(env_overrides)
+    monkeypatch.setattr("scripts.seed_hosted.dotenv_values", lambda f: env)
+    return env
+
+def test_seed_hosted_refuses_when_not_package(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
+    monkeypatch.setattr(seed_hosted, "__package__", "")
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "run as: python -m scripts.seed_hosted" in captured.err
+
+def test_seed_hosted_refuses_flags(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["scripts.seed_hosted", "--reset"])
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "scripts/seed_hosted.py does not accept command-line flags or arguments" in captured.err
+
+def test_seed_hosted_refuses_when_env_not_gitignored(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
+    # Only git check-ignore returns non-zero
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 1})())
-    with pytest.raises(SystemExit) as exc:
-        seed_hosted.main()
-    assert exc.value.code == 2
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert ".env.hosted is not gitignored" in captured.err
 
-def test_seed_hosted_refuses_sqlite_url(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py"])
-    monkeypatch.setattr(os.path, "isfile", lambda p: True)
-    monkeypatch.setattr(
-        "scripts.seed_hosted.dotenv_values",
-        lambda f: {"DATABASE_URL": "sqlite+aiosqlite:///test.db", "APP_ENV": "production"},
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 0})())
-    with pytest.raises(SystemExit) as exc:
-        seed_hosted.main()
-    assert exc.value.code == 2
+def test_seed_hosted_refuses_missing_env_file(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
+    # Only isfile returns False
+    monkeypatch.setattr(os.path, "isfile", lambda p: False)
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert ".env.hosted file not found" in captured.err
 
-def test_seed_hosted_refuses_non_pooler_host(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py"])
-    monkeypatch.setattr(os.path, "isfile", lambda p: True)
-    monkeypatch.setattr(
-        "scripts.seed_hosted.dotenv_values",
-        lambda f: {"DATABASE_URL": "postgresql+asyncpg://user:pass@ep-db.neon.tech/postgres", "APP_ENV": "production"},
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 0})())
-    with pytest.raises(SystemExit) as exc:
-        seed_hosted.main()
-    assert exc.value.code == 2
+def test_seed_hosted_refuses_sqlite_url(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch, {"DATABASE_URL": "sqlite+aiosqlite:///test.db"})
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "DATABASE_URL must start with 'postgresql+asyncpg://' and contain '.pooler.supabase.com'" in captured.err
 
-def test_seed_hosted_refuses_app_env_not_production(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py"])
-    monkeypatch.setattr(os.path, "isfile", lambda p: True)
-    monkeypatch.setattr(
-        "scripts.seed_hosted.dotenv_values",
-        lambda f: {
-            "DATABASE_URL": "postgresql+asyncpg://user:pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres?ssl=require",
-            "APP_ENV": "development",
-        },
+def test_seed_hosted_refuses_non_pooler_host(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(
+        monkeypatch, {"DATABASE_URL": "postgresql+asyncpg://user:pass@ep-db.neon.tech/postgres"}
     )
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 0})())
-    with pytest.raises(SystemExit) as exc:
-        seed_hosted.main()
-    assert exc.value.code == 2
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "DATABASE_URL must start with 'postgresql+asyncpg://' and contain '.pooler.supabase.com'" in captured.err
+
+def test_seed_hosted_refuses_app_env_not_production(monkeypatch, capsys):
+    _apply_valid_seed_hosted_preconditions(monkeypatch, {"APP_ENV": "development"})
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "APP_ENV must be set to 'production'" in captured.err
+
+def test_seed_hosted_refuses_missing_or_dummy_recipient(monkeypatch, capsys):
+    # Dummy fallback address refused
+    _apply_valid_seed_hosted_preconditions(
+        monkeypatch, {"SANDBOX_RECIPIENT_EMAIL": "sb-personal-contractor@personal.example.com"}
+    )
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "SANDBOX_RECIPIENT_EMAIL is missing from .env.hosted or set to fallback dummy address" in captured.err
+
+    # Missing recipient refused
+    _apply_valid_seed_hosted_preconditions(monkeypatch, {"SANDBOX_RECIPIENT_EMAIL": ""})
+    with patch.dict(os.environ, clear=False):
+        with pytest.raises(SystemExit) as exc:
+            seed_hosted.main()
+        assert exc.value.code == 2
+    captured2 = capsys.readouterr()
+    assert "SANDBOX_RECIPIENT_EMAIL is missing from .env.hosted or set to fallback dummy address" in captured2.err
 
 def test_seed_hosted_success_masks_secrets_and_calls_seed(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["seed_hosted.py"])
-    monkeypatch.setattr(os.path, "isfile", lambda p: True)
-    monkeypatch.setattr(
-        "scripts.seed_hosted.dotenv_values",
-        lambda f: {
-            "DATABASE_URL": "postgresql+asyncpg://postgres.ref:secretpass123@aws-0-us-east-1.pooler.supabase.com:5432/postgres?ssl=require",
-            "APP_ENV": "production",
-            "OPERATOR_TOKEN": "secretoperator12345678901234567890123",
-        },
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: type("Obj", (), {"returncode": 0})())
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
     called = {}
 
     async def mock_seed(reset=False, recreate_schema=False, yes_drop_everything=False, keys_output_path=None):
@@ -182,7 +232,8 @@ def test_seed_hosted_success_masks_secrets_and_calls_seed(monkeypatch, capsys):
         called["keys_output_path"] = keys_output_path
 
     monkeypatch.setattr("src.seed.seed_database", mock_seed)
-    seed_hosted.main()
+    with patch.dict(os.environ, clear=False):
+        seed_hosted.main()
 
     captured = capsys.readouterr()
     assert "Connecting to hosted Supabase database host: aws-0-us-east-1.pooler.supabase.com" in captured.out
@@ -192,6 +243,57 @@ def test_seed_hosted_success_masks_secrets_and_calls_seed(monkeypatch, capsys):
     assert "secretoperator" not in captured.err
     assert "postgresql+asyncpg" not in captured.out
     assert called == {"reset": False, "keys_output_path": ".env.hosted.agents"}
+
+def test_seed_hosted_does_not_pollute_outer_environ(monkeypatch):
+    orig_db = os.environ.get("DATABASE_URL")
+    orig_env = os.environ.get("APP_ENV")
+
+    _apply_valid_seed_hosted_preconditions(monkeypatch)
+
+    async def mock_seed(reset=False, recreate_schema=False, yes_drop_everything=False, keys_output_path=None):
+        pass
+
+    monkeypatch.setattr("src.seed.seed_database", mock_seed)
+    with patch.dict(os.environ, clear=False):
+        seed_hosted.main()
+
+    assert os.environ.get("DATABASE_URL") == orig_db, "DATABASE_URL leaked outside test scope"
+    assert os.environ.get("APP_ENV") == orig_env, "APP_ENV leaked outside test scope"
+
+@pytest.mark.asyncio
+async def test_prod_seed_rerun_leaves_paid_task_paid(monkeypatch, capsys):
+    from src.seed import seed_database
+    from src.config import settings
+    from src.models.task import TaskModel
+    from src.schemas.enums import TaskStatus
+    from sqlalchemy import select
+
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "OPERATOR_TOKEN", "prod-secure-token-32-chars-minimum-xyz")
+    monkeypatch.setattr(settings, "SANDBOX_RECIPIENT_EMAIL", "sb-custom@personal.example.com")
+
+    # Initial seed
+    await seed_database(reset=False)
+
+    # Transition task to PAID
+    async with async_session_factory() as db:
+        stmt = select(TaskModel).where(TaskModel.task_id == "task-pr-audit-101")
+        task = (await db.execute(stmt)).scalar_one()
+        task.status = TaskStatus.PAID
+        await db.commit()
+
+    # Re-run seed in production
+    await seed_database(reset=False)
+    captured = capsys.readouterr().out
+
+    # Assert status was NOT reverted to OPEN
+    async with async_session_factory() as db:
+        stmt = select(TaskModel).where(TaskModel.task_id == "task-pr-audit-101")
+        task_after = (await db.execute(stmt)).scalar_one()
+        assert task_after.status == TaskStatus.PAID, "Production re-run unexpectedly reverted PAID task to OPEN"
+
+    # Assert specific log message
+    assert "[.] Task already present: task-pr-audit-101 (left as PAID)" in captured
 
 @pytest.mark.asyncio
 async def test_agent_keys_file_lifecycle_and_rotation(monkeypatch, capsys):

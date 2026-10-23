@@ -107,19 +107,21 @@ After provisioning the Supabase database and setting `DATABASE_URL`:
 
 ### (b) Seeding the Hosted DB Without a Render Shell
 * **Procedure (`scripts/seed_hosted.py`)**:
-  * Execute the safe seeding wrapper script from the operator's machine:
+  * Execute the safe seeding wrapper script as a Python module from the operator's machine:
     ```bash
-    python scripts/seed_hosted.py
+    python -m scripts.seed_hosted
     ```
-  * **Timing**: Run this script **ONCE** after the initial Render deployment has created the schema. Re-running is supported if tasks need resetting, but reopens demo tasks (`seed` resets task status to `OPEN`).
+  * **Timing**: Run this script **ONCE** after the initial Render deployment has created the schema. In production mode, re-running leaves existing tasks untouched (preserving `PAID`, `CLOSED`, or other terminal states without double-paying) and rotates agent keys into `.env.hosted.agents`.
   * **Zero-Leak Guarantee (NEVER use shell-export)**:
     * **Prohibited**: Never run `env $(cat .env.hosted | xargs) python -m src.seed`. Shell-export patterns leak secrets into the OS process table (`ps aux`, `/proc`), shell history logs, and break on spaces or special characters.
     * **Enforced**: `scripts/seed_hosted.py` uses `dotenv_values()` to inject secrets from `.env.hosted` directly into Python's `os.environ` in-memory *before* importing any application modules.
     * **Validation Guards**:
-      1. Refuses (exit 2) any command-line flags (e.g. `--reset`, `--recreate-schema`).
-      2. Refuses (exit 2) unless `DATABASE_URL` starts with `postgresql+asyncpg://` and contains `.pooler.supabase.com`.
-      3. Refuses (exit 2) unless `APP_ENV == "production"`.
-      4. Refuses (exit 2) unless `.env.hosted` is strictly gitignored (`git check-ignore -q .env.hosted`).
+      1. Refuses execution (exit 2) if run directly as a file rather than a module (`python -m scripts.seed_hosted`).
+      2. Refuses (exit 2) any command-line flags (e.g. `--reset`, `--recreate-schema`).
+      3. Refuses (exit 2) unless `DATABASE_URL` starts with `postgresql+asyncpg://` and contains `.pooler.supabase.com`.
+      4. Refuses (exit 2) unless `APP_ENV == "production"`.
+      5. Refuses (exit 2) unless `SANDBOX_RECIPIENT_EMAIL` is explicitly set and not the fallback dummy address.
+      6. Refuses (exit 2) unless `.env.hosted` is strictly gitignored (`git check-ignore -q .env.hosted`).
     * **Host Masking**: Prints only the Supabase host name (e.g., `aws-0-us-east-1.pooler.supabase.com`) during execution—never credentials, ports, or query parameters.
   * **Safety Invariant**: Never add the hosted Supabase connection string to the default local `.env` file. Doing so would risk local automated test runs (`pytest`) or local development commands connecting to and wiping the hosted production database.
 
