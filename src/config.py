@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     SANDBOX_RECIPIENT_EMAIL: Optional[str] = None
     MOCK_PAYPAL: bool = False
 
+    # Poller
+    POLLER_ENABLED: bool = True
+
     # LLM (Gate 2): any OpenAI-compatible endpoint; defaults to Gemini's.
     # For OpenAI, set LLM_BASE_URL=https://api.openai.com/v1 and LLM_MODEL=gpt-4o-mini.
     GEMINI_API_KEY: Optional[str] = None

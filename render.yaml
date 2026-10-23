@@ -23,6 +23,8 @@ services:
         value: "false"
       - key: DEMO_MODE
         value: "false"
+      - key: POLLER_ENABLED
+        value: "true"
       - key: PUBLIC_HOST
         sync: false
       - key: PAYPAL_CLIENT_ID

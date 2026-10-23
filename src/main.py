@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+
+logger = logging.getLogger(__name__)
 import re
 import secrets
 import uuid
@@ -81,7 +83,10 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # Start reconciliation poller
-    poller.start()
+    if settings.POLLER_ENABLED:
+        poller.start()
+    else:
+        logger.warning("Reconciliation poller DISABLED (POLLER_ENABLED=false); webhooks are the only settlement path")
 
     # Start Gate 2 sweeper (resumes reviews orphaned by a restart on its first pass)
     gate2_sweeper.start()
@@ -93,7 +98,8 @@ async def lifespan(app: FastAPI):
 
     # Cleanup on shutdown
     await gate2_sweeper.stop()
-    await poller.stop()
+    if settings.POLLER_ENABLED:
+        await poller.stop()
     await paypal_client.close()
 
 app = FastAPI(

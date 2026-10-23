@@ -371,3 +371,37 @@ async def test_agent_keys_file_lifecycle_and_rotation(monkeypatch, capsys):
     finally:
         if os.path.exists(test_key_file):
             os.remove(test_key_file)
+
+@pytest.mark.asyncio
+async def test_lifespan_poller_enabled_switch(monkeypatch, caplog):
+    import logging
+    from contextlib import asynccontextmanager
+    from src.main import lifespan, app, mcp_server
+    from src.services.poller import poller
+    from src.config import settings
+
+    @asynccontextmanager
+    async def dummy_mcp_run():
+        yield
+
+    monkeypatch.setattr(mcp_server.session_manager, "run", dummy_mcp_run)
+
+    # Ensure clean starting state
+    await poller.stop()
+
+    # 1. POLLER_ENABLED=False: poller does not start and warning is logged
+    monkeypatch.setattr(settings, "POLLER_ENABLED", False)
+    with caplog.at_level(logging.WARNING):
+        async with lifespan(app):
+            assert poller._running is False
+            assert "Reconciliation poller DISABLED (POLLER_ENABLED=false); webhooks are the only settlement path" in caplog.text
+
+    assert poller._running is False
+
+    # 2. POLLER_ENABLED=True: poller starts
+    monkeypatch.setattr(settings, "POLLER_ENABLED", True)
+    async with lifespan(app):
+        assert poller._running is True
+
+    # Shutdown stops the poller
+    assert poller._running is False
