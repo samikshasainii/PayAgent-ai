@@ -59,11 +59,35 @@ def test_deployment_doc_webhook_events_match_status_mapping():
     # Optional events allowed
     optional_events = {"PAYMENT.PAYOUTSBATCH.PROCESSING", "PAYMENT.PAYOUTSBATCH.SUCCESS"}
 
-    # Every item event in doc must be in status_mapping
+    # Bidirectional check:
+    # 1. Every event in status_mapping must be documented in DEPLOYMENT.md
+    assert set(PAYPAL_EVENT_TO_REQUEST_STATUS) <= doc_events, (
+        f"Missing events in DEPLOYMENT.md: {set(PAYPAL_EVENT_TO_REQUEST_STATUS) - doc_events}"
+    )
+
+    # 2. Every non-optional event in doc must be in status_mapping
     for event in doc_events:
         if event in optional_events:
             continue
         assert event in PAYPAL_EVENT_TO_REQUEST_STATUS, f"Event {event} in DEPLOYMENT.md not in status_mapping"
+
+@pytest.mark.asyncio
+async def test_prod_seed_masks_recipient_in_stdout(monkeypatch, capsys):
+    from src.seed import seed_database
+    from src.config import settings
+
+    raw_email = "sb-contractor-secret@personal.example.com"
+    masked_email = "sb***@personal.example.com"
+
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "OPERATOR_TOKEN", "prod-secure-token-32-chars-minimum-xyz")
+    monkeypatch.setattr(settings, "SANDBOX_RECIPIENT_EMAIL", raw_email)
+
+    await seed_database(reset=False)
+    captured = capsys.readouterr().out
+
+    assert raw_email not in captured, "Raw recipient email leaked in production seed output"
+    assert masked_email in captured, "Masked recipient email not found in production seed output"
 
 def test_supabase_session_pooler_asyncpg_url_parsing():
     # Verify Supabase session pooler string with ?ssl=require parses cleanly

@@ -36,6 +36,8 @@ venv.bak/
 
 # Environment variables & secrets (CRITICAL: NEVER COMMIT)
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 *.pem
@@ -67,3 +69,4 @@ data/processed/*
 .coverage
 htmlcov/
 .mypy_cache/
+

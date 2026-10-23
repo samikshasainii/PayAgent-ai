@@ -93,3 +93,34 @@ After provisioning the Supabase database and setting `DATABASE_URL`:
 
    *(Note: PayPal webhook event for item success is `PAYMENT.PAYOUTS-ITEM.SUCCEEDED`, not `.SUCCESS`.)*
 4. Copy the resulting Webhook ID and configure `PAYPAL_WEBHOOK_ID` in the Render dashboard.
+
+---
+
+## 5. Hosted Seeding & Architecture Design Notes
+
+### (a) Database Initialization on Empty Supabase DB
+* **Does `init_db` create tables on an empty DB, or must `seed` run first?**
+  * App startup (`src/main.py:81` lifespan -> `await init_db()`) executes `conn.run_sync(Base.metadata.create_all)` in `src/database.py:75`.
+  * `Base.metadata.create_all` automatically creates all missing tables (`payout_requests`, `tasks`, `agents`, `budget_windows`, `agent_incidents`), foreign keys, and PostgreSQL native enum types (`payoutrequeststatus`, `taskstatus`, `agentstatus`) from scratch on a blank database.
+  * The column verification guard `_verify_columns` (`src/database.py:77-105`) runs immediately after `create_all`; on a freshly created schema, `missing` is empty (`[]`).
+  * **Conclusion**: The app starts cleanly on an empty Supabase database and initializes its entire schema automatically. `seed` does **not** need to run before app startup.
+
+### (b) Seeding the Hosted DB Without a Render Shell
+* **Procedure**:
+  * Run `python -m src.seed` (strictly **without** `--reset` and **never** `--recreate-schema`) from the local operator machine.
+  * Inject `DATABASE_URL` (Supabase Session Pooler with `?ssl=require`), `OPERATOR_TOKEN`, and `APP_ENV=production` strictly for that one local process invocation using a gitignored `.env.hosted` file:
+    ```bash
+    # Run locally with .env.hosted variables injected only into this process:
+    env $(cat .env.hosted | xargs) python -m src.seed
+    ```
+  * **Safety Invariant**: Never add the hosted Supabase connection string to the default local `.env` file. Doing so would risk local automated test runs (`pytest`) or local development commands (`python -m src.seed --reset`) connecting to and wiping the hosted production database.
+
+### (c) Hosted Demo Agent Keys Provisioning Proposal
+* **Problem**:
+  * In production (`APP_ENV=production`), `src/seed.py:96-106` generates random 32-byte tokens and line 240 intentionally suppresses console output of keys.
+  * Demo tasks (`task-pr-audit-101`, `task-high-value-102`, `task-dataset-curation-103`) are assigned to `agent-code-reviewer-01` and `agent-data-labeler-02`.
+  * `POST /api/v1/agents` returns HTTP 409 Conflict for existing agent IDs, preventing demo runs with these pre-assigned tasks if the seeded keys are unknown.
+* **Proposals for Reviewer Alignment**:
+  * **Option 1 (Local operator file output - Recommended)**: When `python -m src.seed` is executed directly via CLI from the operator's machine (not in cloud logs), output the generated agent keys to the local terminal once and/or write them to a gitignored local file `.env.hosted.agents`. Cloud logs on Render remain completely sterile because `seed.py` is not executed in the cloud service.
+  * **Option 2 (Deterministic env-var keys via `.env.hosted`)**: Update `src/seed.py` so that if `APP_ENV=production` and `SEED_AGENT_KEYS_JSON` (or `AGENT_CODE_REVIEWER_KEY` / `AGENT_DATA_LABELER_KEY`) is present in the local execution environment, seed uses those operator-supplied keys rather than random unprinted tokens.
+  * **Option 3 (Operator key rotation endpoint)**: Implement `POST /api/v1/agents/{agent_id}/rotate-key` protected by `OPERATOR_TOKEN` which rotates an existing agent's hashed key and returns the single-use plaintext key to the operator.
