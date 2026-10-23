@@ -7,6 +7,7 @@ services:
     buildCommand: pip install -r requirements.txt
     # Single worker: required by the budget-reservation design (ARCHITECTURE.md section 5.3)
     startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.4
@@ -18,8 +19,12 @@ services:
         value: https://api-m.sandbox.paypal.com
       - key: MOCK_PAYPAL
         value: "false"
+      - key: MOCK_LLM
+        value: "false"
       - key: DEMO_MODE
         value: "false"
+      - key: PUBLIC_HOST
+        sync: false
       - key: PAYPAL_CLIENT_ID
         sync: false
       - key: PAYPAL_CLIENT_SECRET

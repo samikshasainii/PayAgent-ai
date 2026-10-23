@@ -33,7 +33,7 @@ PayAgent is the **only component that holds PayPal credentials**. Agents never s
 
 | Layer | Technology | Notes |
 | :--- | :--- | :--- |
-| Language | Python 3.11 | Matches `render.yaml` `PYTHON_VERSION`. |
+| Language | Python 3.12 | Matches `render.yaml` `PYTHON_VERSION` (3.12.4). |
 | API | FastAPI + Uvicorn (**single worker**) | Single worker is a documented assumption of the budget-reservation design (§5.3). |
 | Agent interface | REST **and** an MCP server exposed by PayAgent (`mcp` Python SDK) | Lets any MCP-capable agent request payment without custom glue (§6.5). |
 | Proof-of-Task review | `openai` SDK structured outputs against any OpenAI-compatible endpoint (Gemini `gemini-3.5-flash-lite` default; OpenAI via `LLM_BASE_URL`) | One structured call. LangGraph is **not** used — there is no multi-step graph to justify it. |
