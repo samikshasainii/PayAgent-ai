@@ -106,21 +106,26 @@ After provisioning the Supabase database and setting `DATABASE_URL`:
   * **Conclusion**: The app starts cleanly on an empty Supabase database and initializes its entire schema automatically. `seed` does **not** need to run before app startup.
 
 ### (b) Seeding the Hosted DB Without a Render Shell
-* **Procedure**:
-  * Run `python -m src.seed` (strictly **without** `--reset` and **never** `--recreate-schema`) from the local operator machine.
-  * Inject `DATABASE_URL` (Supabase Session Pooler with `?ssl=require`), `OPERATOR_TOKEN`, and `APP_ENV=production` strictly for that one local process invocation using a gitignored `.env.hosted` file:
+* **Procedure (`scripts/seed_hosted.py`)**:
+  * Execute the safe seeding wrapper script from the operator's machine:
     ```bash
-    # Run locally with .env.hosted variables injected only into this process:
-    env $(cat .env.hosted | xargs) python -m src.seed
+    python scripts/seed_hosted.py
     ```
-  * **Safety Invariant**: Never add the hosted Supabase connection string to the default local `.env` file. Doing so would risk local automated test runs (`pytest`) or local development commands (`python -m src.seed --reset`) connecting to and wiping the hosted production database.
+  * **Timing**: Run this script **ONCE** after the initial Render deployment has created the schema. Re-running is supported if tasks need resetting, but reopens demo tasks (`seed` resets task status to `OPEN`).
+  * **Zero-Leak Guarantee (NEVER use shell-export)**:
+    * **Prohibited**: Never run `env $(cat .env.hosted | xargs) python -m src.seed`. Shell-export patterns leak secrets into the OS process table (`ps aux`, `/proc`), shell history logs, and break on spaces or special characters.
+    * **Enforced**: `scripts/seed_hosted.py` uses `dotenv_values()` to inject secrets from `.env.hosted` directly into Python's `os.environ` in-memory *before* importing any application modules.
+    * **Validation Guards**:
+      1. Refuses (exit 2) any command-line flags (e.g. `--reset`, `--recreate-schema`).
+      2. Refuses (exit 2) unless `DATABASE_URL` starts with `postgresql+asyncpg://` and contains `.pooler.supabase.com`.
+      3. Refuses (exit 2) unless `APP_ENV == "production"`.
+      4. Refuses (exit 2) unless `.env.hosted` is strictly gitignored (`git check-ignore -q .env.hosted`).
+    * **Host Masking**: Prints only the Supabase host name (e.g., `aws-0-us-east-1.pooler.supabase.com`) during execution—never credentials, ports, or query parameters.
+  * **Safety Invariant**: Never add the hosted Supabase connection string to the default local `.env` file. Doing so would risk local automated test runs (`pytest`) or local development commands connecting to and wiping the hosted production database.
 
-### (c) Hosted Demo Agent Keys Provisioning Proposal
-* **Problem**:
-  * In production (`APP_ENV=production`), `src/seed.py:96-106` generates random 32-byte tokens and line 240 intentionally suppresses console output of keys.
-  * Demo tasks (`task-pr-audit-101`, `task-high-value-102`, `task-dataset-curation-103`) are assigned to `agent-code-reviewer-01` and `agent-data-labeler-02`.
-  * `POST /api/v1/agents` returns HTTP 409 Conflict for existing agent IDs, preventing demo runs with these pre-assigned tasks if the seeded keys are unknown.
-* **Proposals for Reviewer Alignment**:
-  * **Option 1 (Local operator file output - Recommended)**: When `python -m src.seed` is executed directly via CLI from the operator's machine (not in cloud logs), output the generated agent keys to the local terminal once and/or write them to a gitignored local file `.env.hosted.agents`. Cloud logs on Render remain completely sterile because `seed.py` is not executed in the cloud service.
-  * **Option 2 (Deterministic env-var keys via `.env.hosted`)**: Update `src/seed.py` so that if `APP_ENV=production` and `SEED_AGENT_KEYS_JSON` (or `AGENT_CODE_REVIEWER_KEY` / `AGENT_DATA_LABELER_KEY`) is present in the local execution environment, seed uses those operator-supplied keys rather than random unprinted tokens.
-  * **Option 3 (Operator key rotation endpoint)**: Implement `POST /api/v1/agents/{agent_id}/rotate-key` protected by `OPERATOR_TOKEN` which rotates an existing agent's hashed key and returns the single-use plaintext key to the operator.
+### (c) Hosted Demo Agent Keys Provisioning (Option 1: File Only)
+* **Agent Key Lifecycle**:
+  * Generated API keys are written strictly to `.env.hosted.agents` (`AGENT_CODE_REVIEWER_01_KEY=...`, `AGENT_DATA_LABELER_02_KEY=...`) only when called via `scripts/seed_hosted.py`.
+  * **File-Only Safety**: Keys are **never** printed to stdout or logged to console in production mode.
+  * **Gitignore Guard**: Refuses to write keys unless `git check-ignore -q <path>` confirms the target file is ignored.
+  * **Key Rotation for Existing Agents**: On re-runs, existing demo agents have their `api_key_hash` updated in the database to match the newly generated keys (`[.] Agent key rotated: <id>`), ensuring that the credentials written to `.env.hosted.agents` are immediately functional while invalidating previously saved keys.

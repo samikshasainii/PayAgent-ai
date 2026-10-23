@@ -1,8 +1,10 @@
 import argparse
 import asyncio
 import secrets
+import subprocess
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Optional
 from sqlalchemy import select, delete, inspect, text, Enum as SQLEnum
 
 from src.database import async_session_factory, init_db, engine, Base
@@ -87,8 +89,18 @@ async def recreate_database_schema(yes_drop_everything: bool = False):
     print("Schema recreation complete.")
 
 
-async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_drop_everything: bool = False):
+async def seed_database(
+    reset: bool = False,
+    recreate_schema: bool = False,
+    yes_drop_everything: bool = False,
+    keys_output_path: Optional[str] = None,
+):
     """Populates initial demo agents and tasks for local review and sandbox testing."""
+    if keys_output_path:
+        check = subprocess.run(["git", "check-ignore", "-q", keys_output_path], check=False)
+        if check.returncode != 0:
+            raise RuntimeError(f"Refusing to write secrets: {keys_output_path} is not gitignored")
+
     if recreate_schema:
         await recreate_database_schema(yes_drop_everything=yes_drop_everything)
     else:
@@ -175,8 +187,16 @@ async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_
                 print(f"  [+] Seeded agent: {ag_info['agent_id']}")
             else:
                 existing.status = AgentStatus.ACTIVE
-                seeded_agents.append((ag_info["agent_id"], ag_info["api_key"]))
-                print(f"  [.] Agent already present: {ag_info['agent_id']} (reset to ACTIVE)")
+                if is_prod and keys_output_path:
+                    new_key = ag_info["api_key"]
+                    existing.api_key_hash = hash_api_key(new_key)
+                    seeded_agents.append((ag_info["agent_id"], new_key))
+                    print(f"  [.] Agent key rotated: {ag_info['agent_id']}")
+                elif not is_prod:
+                    seeded_agents.append((ag_info["agent_id"], ag_info["api_key"]))
+                    print(f"  [.] Agent already present: {ag_info['agent_id']} (reset to ACTIVE)")
+                else:
+                    print(f"  [.] Agent already present: {ag_info['agent_id']} (reset to ACTIVE)")
 
         # 2. Seed Tasks
         tasks_data = [
@@ -231,6 +251,15 @@ async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_
 
         await db.commit()
 
+    if is_prod and keys_output_path:
+        lines = []
+        for aid, key in seeded_agents:
+            var_name = aid.replace("-", "_").upper() + "_KEY"
+            lines.append(f"{var_name}={key}\n")
+        with open(keys_output_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        print(f"Agent keys written to gitignored file: {keys_output_path}")
+
     print("\nDatabase seeding completed successfully!")
     if not is_prod:
         print(f"Operator Token: {settings.OPERATOR_TOKEN}")
@@ -238,7 +267,8 @@ async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_
             print(f"Agent: {aid} | Key: {key}")
     else:
         print("Production environment active: Credentials generated securely without console logging.")
-        print("Note: In production, register agents via POST /api/v1/agents to retrieve single-use API keys.")
+        if not keys_output_path:
+            print("Note: In production, register agents via POST /api/v1/agents to retrieve single-use API keys.")
     if is_prod:
         print(f"Sandbox Recipient Email: {mask_recipient_email(recipient)}")
     else:
