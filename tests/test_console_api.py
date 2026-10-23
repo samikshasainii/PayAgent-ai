@@ -7,6 +7,7 @@ from src.main import app
 from src.config import settings
 from src.database import async_session_factory
 from src.models.agent import AgentModel
+from src.models.task import TaskModel
 from src.models.budget import BudgetWindowModel
 from src.schemas.enums import AgentStatus
 from src.services.auth import hash_api_key
@@ -119,3 +120,38 @@ async def test_create_task_id_validation_rejects_injection():
         }
         res = await client.post("/api/v1/tasks", json=payload, headers=headers)
         assert res.status_code == 422
+
+@pytest.mark.asyncio
+async def test_legacy_task_id_in_db_returns_200_in_task_list():
+    async with async_session_factory() as session:
+        # Create assigned agent
+        agent = AgentModel(
+            agent_id="legacy-agent-01",
+            name="Legacy Agent",
+            api_key_hash=hash_api_key("test_key"),
+            hourly_cap=Decimal("100.00"),
+            status=AgentStatus.ACTIVE
+        )
+        session.add(agent)
+        
+        legacy_task = TaskModel(
+            task_id="legacy task #7",
+            title="Legacy Task",
+            acceptance_criteria="None",
+            budget=Decimal("30.00"),
+            allowed_recipient="contractor@sandbox.paypal.com",
+            assigned_agent_id="legacy-agent-01",
+            required_deliverables=["report"],
+            deadline=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=1),
+        )
+        session.add(legacy_task)
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": f"Bearer {settings.OPERATOR_TOKEN}"}
+        res = await client.get("/api/v1/tasks", headers=headers)
+        assert res.status_code == 200
+        tasks = res.json()
+        ids = [t["task_id"] for t in tasks]
+        assert "legacy task #7" in ids

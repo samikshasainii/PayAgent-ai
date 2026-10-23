@@ -14,7 +14,7 @@ def validate_currency_precision(val: Decimal) -> Decimal:
     return val
 
 class TaskBase(BaseModel):
-    task_id: str = Field(..., pattern=r"^[A-Za-z0-9._:-]{1,64}$")
+    task_id: str
     title: str
     acceptance_criteria: str
     budget: Decimal
@@ -29,7 +29,7 @@ class TaskBase(BaseModel):
         return validate_currency_precision(v)
 
 class TaskCreate(TaskBase):
-    pass
+    task_id: str = Field(..., pattern=r"^[A-Za-z0-9._:-]{1,64}$")
 
 class TaskOut(TaskBase):
     model_config = ConfigDict(from_attributes=True)
