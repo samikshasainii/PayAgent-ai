@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: M3.2 (Operator Console).
+- **Next Up**: M3.5 (Render deploy).
 
 ---
 
@@ -148,7 +148,8 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 ### Acceptance Criteria
 - [x] M3.1 SSE stream (publish events only after the DB commit succeeds, never before): `GET /api/v1/events` emits payout-request, task, and agent changes (including `RECEIVED` -> decision); the console switches from 2s polling to SSE, with polling as fallback on disconnect.
   - Done & approved (reviewer, 2026-10-22, commits 0ba7f04, 2135fe4): in-process broadcaster (bounded queues, slow-client drop, sync unsubscribe), GET /api/v1/events with ?token= (UTF-8-safe compare, access-log redaction), post-commit publishing on every write path, operator approve writes APPROVED then the write-ahead SUBMITTED before PayPal, poller holds no transaction during PayPal calls (incl. row 1 and P3 recovery).
-- [ ] M3.2 Console:
+- [x] M3.2 Console:
+  - Done & approved (reviewer, 2026-10-23, commits a127a71, afee2a9, 70fc334): AG Grid Community 32.2.0 with SRI hashes, EventSource exponential backoff reconnect on non-200 with fallback polling, auth check halts on 401, all inline onclick handlers eliminated (delegated data-action listeners), ID regex validation ^[A-Za-z0-9._:-]{1,64}$ on TaskCreate/AgentCreate, refresh coalescing (250ms trailing debounce, <= 8 REST calls per happy submission), full 1400px readability for statuses and decision reasons, HITL modal review and approval flow.
   - Payout-requests grid with status and reason-code chips, risk badge, and an "in review" state for `RECEIVED`
   - Approve/reject buttons that show the deliverables and LLM reasoning before confirming
   - Agents grid with hourly burn against the cap and quarantine status (with release action); task list
