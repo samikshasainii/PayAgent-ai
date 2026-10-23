@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from src.schemas.enums import AgentStatus
 
 class AgentCreate(BaseModel):
-    agent_id: str
+    agent_id: str = Field(..., pattern=r"^[A-Za-z0-9._:-]{1,64}$")
     name: str
     hourly_cap: Decimal = Field(default=Decimal("200.00"), gt=0)
 

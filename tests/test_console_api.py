@@ -1,22 +1,16 @@
 import pytest
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from httpx import AsyncClient, ASGITransport
 from src.main import app
 from src.config import settings
-from src.database import async_session_factory, Base, engine
+from src.database import async_session_factory
 from src.models.agent import AgentModel
 from src.models.budget import BudgetWindowModel
 from src.schemas.enums import AgentStatus
 from src.services.auth import hash_api_key
 from src.services.guardian import get_current_hour_window
-
-@pytest.fixture(autouse=True)
-async def setup_test_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield
 
 @pytest.mark.asyncio
 async def test_get_config_requires_operator_token():
@@ -81,3 +75,47 @@ async def test_list_agents_burn_and_quarantine_metrics():
         assert Decimal(str(target["current_reserved"])) == Decimal("50.00")
         assert Decimal(str(target["current_spent"])) == Decimal("25.00")
         assert Decimal(str(target["current_burn"])) == Decimal("75.00")
+
+@pytest.mark.asyncio
+async def test_register_agent_id_validation_rejects_injection():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": f"Bearer {settings.OPERATOR_TOKEN}"}
+        
+        # Injected agent_id with quotes, parentheses, slashes
+        payload = {
+            "agent_id": "evil');window.__xssRelease=1;//",
+            "name": "Malicious Agent",
+            "hourly_cap": "200.00"
+        }
+        res = await client.post("/api/v1/agents", json=payload, headers=headers)
+        assert res.status_code == 422
+        
+        # Valid agent_id passes pattern
+        valid_payload = {
+            "agent_id": "valid-agent.01_v2:test",
+            "name": "Valid Agent",
+            "hourly_cap": "200.00"
+        }
+        res_ok = await client.post("/api/v1/agents", json=valid_payload, headers=headers)
+        assert res_ok.status_code == 201
+
+@pytest.mark.asyncio
+async def test_create_task_id_validation_rejects_injection():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": f"Bearer {settings.OPERATOR_TOKEN}"}
+        
+        # Injected task_id
+        payload = {
+            "task_id": "task<script>alert(1)</script>",
+            "title": "Malicious Task",
+            "acceptance_criteria": "None",
+            "budget": "20.00",
+            "allowed_recipient": "contractor@sandbox.paypal.com",
+            "assigned_agent_id": "agent-code-reviewer-01",
+            "required_deliverables": ["report"],
+            "deadline": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        }
+        res = await client.post("/api/v1/tasks", json=payload, headers=headers)
+        assert res.status_code == 422

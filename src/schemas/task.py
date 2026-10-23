@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import List
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, Field
 from src.schemas.enums import TaskStatus
 
 def validate_currency_precision(val: Decimal) -> Decimal:
@@ -14,7 +14,7 @@ def validate_currency_precision(val: Decimal) -> Decimal:
     return val
 
 class TaskBase(BaseModel):
-    task_id: str
+    task_id: str = Field(..., pattern=r"^[A-Za-z0-9._:-]{1,64}$")
     title: str
     acceptance_criteria: str
     budget: Decimal
