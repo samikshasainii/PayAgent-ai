@@ -11,14 +11,14 @@ from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from starlette.routing import Route
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.services.events import broadcaster, utc_iso
 
 from src.config import settings
-from src.database import init_db, get_db
+from src.database import init_db, get_db, async_session_factory
 from src.models.agent import AgentModel
 from src.models.task import TaskModel
 from src.models.payout import PayoutRequestModel
@@ -149,6 +149,19 @@ for route in mcp_http_app.routes:
     app.routes.append(route)
     if isinstance(route, Route) and route.path == "/mcp":
         app.routes.append(Route("/mcp/", endpoint=route.endpoint))
+
+@app.get("/healthz")
+async def healthz():
+    """Liveness & database readiness check for cloud deployment / keep-warm."""
+    try:
+        async with async_session_factory() as db:
+            await db.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "db_unavailable"},
+        )
 
 # --- Operator Task Endpoints ---
 

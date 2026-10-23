@@ -18,6 +18,14 @@ from src.services.auth import hash_api_key
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+def mask_recipient_email(email: str) -> str:
+    """Mask email for production log safety: first 2 chars of local part + '***@' + domain."""
+    if "@" in email:
+        local, domain = email.split("@", 1)
+        prefix = local[:2]
+        return f"{prefix}***@{domain}"
+    return "***"
+
 # Requests in these states have no PayPal work in flight; anything else blocks --reset / --recreate-schema outside mock mode
 TERMINAL_STATUSES = {
     PayoutRequestStatus.PAID,
@@ -231,7 +239,10 @@ async def seed_database(reset: bool = False, recreate_schema: bool = False, yes_
     else:
         print("Production environment active: Credentials generated securely without console logging.")
         print("Note: In production, register agents via POST /api/v1/agents to retrieve single-use API keys.")
-    print(f"Sandbox Recipient Email: {recipient}")
+    if is_prod:
+        print(f"Sandbox Recipient Email: {mask_recipient_email(recipient)}")
+    else:
+        print(f"Sandbox Recipient Email: {recipient}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed PayAgent Demo Data")
