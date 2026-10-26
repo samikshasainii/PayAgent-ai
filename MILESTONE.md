@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: M3.3 MCP client verification against the hosted URL, then M3.4 Postman, then M3.8 1-Click Simulator, then M3.9 console restyle, then M3.7 hosted rehearsal and video.
+- **Next Up**: M3.8 1-Click Simulator (8a–8e), then M3.9 console restyle, then M3.7 hosted rehearsal and video.
 
 ---
 
@@ -169,7 +169,8 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
   4. Verify the batch ID directly against PayPal (read-only GET) and check `sender_batch_id` = `payagent_<request id without dashes>`.
   5. Commit `docs/mcp/M3.3_transcript.md`: tool calls and responses with the key as `pa_***`, request ID, batch ID, timestamps; no recipient email.
   6. If the host check returns 421/403 or the client cannot connect: stop and report the exact error. Do not edit the MCP allowlist.
-- [ ] M3.4 Postman (local server only; never the hosted instance). Docs and one test only.
+- [x] M3.4 Postman (local server only; never the hosted instance). Docs and one test only.
+  - Done & approved (reviewer, 2026-10-27, commits 5e32e3d, <this commit>): Newman green twice back to back on a scratch local DB (MOCK_PAYPAL/MOCK_LLM), reviewer re-ran it independently; 101 tests on SQLite and Postgres.
   1. Add `docs/postman/PayAgent.postman_collection.json` and `docs/postman/PayAgent.local.postman_environment.json`. The environment holds `base_url=http://127.0.0.1:8000`, the local demo agent key from `src/seed.py` and a placeholder operator token; no hosted values.
   2. Folders in order: Setup (`/healthz`, `/api/v1/config`) -> Happy path (202 `RECEIVED`, then poll to `PAID`) -> Over budget (422 `OVER_TASK_BUDGET`) -> Replay (409 `ARTIFACT_REPLAY`) -> Injection (202, poll to `PENDING_HUMAN_APPROVAL`) -> HITL approve (operator approve -> `PAID`) -> Status (GET). Every request has `pm.test` assertions on status code and body; polling uses bounded retries (max ~60 s).
      - **Fresh tasks, not the seeded ones.** Gate 1 checks "task OPEN and assigned" (row 3) before budget (row 5), keys (row 6) and replay (row 7), and a task locks after its first passing submission. So Setup creates one task per folder through the existing operator endpoint `POST /api/v1/tasks`, with IDs suffixed `{{$timestamp}}`, recipient `recipient@example.com`, deadline + 1 day:
@@ -256,7 +257,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 ### Done When
 - [x] A verified real PayPal webhook moves a request on the hosted instance (Request `cb23e79f-485b-4e48-b8d8-214ba60cfe75`, Batch `MLQ7NMYJ4TKBC`, settled to `PAID` at +116s with `POLLER_ENABLED=false`)
 - [x] The MCP client completes a payout request end-to-end
-- The Postman collection runs green
+- [x] The Postman collection runs green
 - M3.0 Pre-flight items closed and reviewed (done)
 - M3.0b Entry fixes E1-E6 closed and reviewed
 - Full test suite green on SQLite **and** Postgres

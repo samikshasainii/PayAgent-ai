@@ -43,6 +43,25 @@ def test_postman_collection_folders_order():
     ]
     assert folder_names == expected_folders, f"Folder structure mismatch: {folder_names} != {expected_folders}"
 
+def test_postman_no_hidden_send_request_releases():
+    """Assert that no script in the collection contains sendRequest together with /release."""
+    with open(COLLECTION_PATH, "r", encoding="utf-8") as f:
+        col = json.load(f)
+
+    def scan_items(items):
+        for item in items:
+            if "item" in item:
+                scan_items(item["item"])
+            for event in item.get("event", []):
+                script = event.get("script", {})
+                exec_lines = script.get("exec", [])
+                full_script = "\n".join(exec_lines)
+                assert not ("sendRequest" in full_script and "/release" in full_script), (
+                    f"Hidden /release call via pm.sendRequest found in script for '{item.get('name')}'"
+                )
+
+    scan_items(col.get("item", []))
+
 def test_postman_no_secret_leaks_or_live_credentials():
     with open(COLLECTION_PATH, "r", encoding="utf-8") as f:
         col_text = f.read()

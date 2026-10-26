@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b3e21890-482f-410a-b31c-76e93e248b11",
     "name": "PayAgent AI Guardian",
-    "description": "Postman test suite for PayAgent AI autonomous payout guardian.",
+    "description": "Postman test suite for PayAgent AI autonomous payout guardian. Releasing a quarantined agent is an operator action; incidents are kept, so repeat runs within 10 minutes need these explicit releases.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -85,6 +85,92 @@
           ]
         },
         {
+          "name": "Operator: release agent-code-reviewer-01 (circuit-breaker reset for repeat runs)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/agent-code-reviewer-01/release",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "agent-code-reviewer-01",
+                "release"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Agent status is ACTIVE', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ACTIVE');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Operator: release agent-data-labeler-02 (circuit-breaker reset for repeat runs)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/agent-data-labeler-02/release",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "agent-data-labeler-02",
+                "release"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Agent status is ACTIVE', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ACTIVE');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Happy Task",
           "request": {
             "method": "POST",
@@ -124,12 +210,7 @@
                 "exec": [
                   "var ts = Date.now().toString();",
                   "pm.environment.set('current_timestamp', ts);",
-                  "pm.environment.set('happy_task_id', 'task-happy-' + ts);",
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-code-reviewer-01/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
+                  "pm.environment.set('happy_task_id', 'task-happy-' + ts);"
                 ]
               }
             },
@@ -169,7 +250,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"task_id\": \"{{overbudget_task_id}}\",\n  \"title\": \"Infrastructure Migration\",\n  \"acceptance_criteria\": \"Zero-downtime database migration\",\n  \"budget\": 120.00,\n  \"allowed_recipient\": \"{{demo_recipient_email}}\",\n  \"assigned_agent_id\": \"agent-code-reviewer-01\",\n  \"required_deliverables\": [\"migration_plan\", \"rollback_strategy\"],\n  \"deadline\": \"2027-12-31T23:59:59Z\"\n}"
+              "raw": "{\n  \"task_id\": \"{{overbudget_task_id}}\",\n  \"title\": \"Database Migration Audit\",\n  \"acceptance_criteria\": \"Zero downtime schema migration\",\n  \"budget\": 120.00,\n  \"allowed_recipient\": \"{{demo_recipient_email}}\",\n  \"assigned_agent_id\": \"agent-code-reviewer-01\",\n  \"required_deliverables\": [\"migration_plan\", \"rollback_strategy\"],\n  \"deadline\": \"2027-12-31T23:59:59Z\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/tasks",
@@ -358,12 +439,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "var ts = pm.environment.get('current_timestamp') || Date.now().toString();",
-                  "pm.environment.set('injection_task_id', 'task-injection-' + ts);",
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-data-labeler-02/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
+                  "pm.environment.set('injection_task_id', 'task-injection-' + ts);"
                 ]
               }
             },
@@ -374,6 +450,48 @@
                 "exec": [
                   "pm.test('Status code is 201 Created', function () {",
                   "    pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Tasks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tasks"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Tasks array returned', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(Array.isArray(json)).to.be.true;",
+                  "    pm.expect(json.length).to.be.at.least(5);",
                   "});"
                 ]
               }
@@ -489,9 +607,9 @@
                   "",
                   "if (json.status !== 'PAID' && pollCount < maxRetries) {",
                   "    pm.environment.set('happy_poll_count', (pollCount + 1).toString());",
-                  "    var start = Date.now();",
-                  "    while (Date.now() - start < 500) {}",
-                  "    pm.execution.setNextRequest('Poll Happy Path Status');",
+                  "    setTimeout(function () {",
+                  "        pm.execution.setNextRequest('Poll Happy Path Status');",
+                  "    }, 500);",
                   "} else {",
                   "    pm.execution.setNextRequest('Submit Over Budget Payout');",
                   "    pm.test('Final status reached PAID', function () {",
@@ -553,12 +671,50 @@
                   "pm.test('Rejection error is OVER_TASK_BUDGET', function () {",
                   "    pm.expect(json.detail.error).to.eql('OVER_TASK_BUDGET');",
                   "    pm.expect(json.detail.status).to.eql('POLICY_REJECTED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Operator: release agent-code-reviewer-01 (circuit-breaker reset for repeat runs)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/agent-code-reviewer-01/release",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "agent-code-reviewer-01",
+                "release"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-code-reviewer-01/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
+                  "pm.test('Agent status is ACTIVE', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ACTIVE');",
+                  "});"
                 ]
               }
             }
@@ -603,19 +759,6 @@
           },
           "event": [
             {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-code-reviewer-01/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
-                ]
-              }
-            },
-            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -627,12 +770,50 @@
                   "pm.test('Rejection error is ARTIFACT_REPLAY', function () {",
                   "    pm.expect(json.detail.error).to.eql('ARTIFACT_REPLAY');",
                   "    pm.expect(json.detail.status).to.eql('POLICY_REJECTED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Operator: release agent-code-reviewer-01 (circuit-breaker reset for repeat runs)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/agents/agent-code-reviewer-01/release",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "agent-code-reviewer-01",
+                "release"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-code-reviewer-01/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
+                  "pm.test('Agent status is ACTIVE', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ACTIVE');",
+                  "});"
                 ]
               }
             }
@@ -734,9 +915,9 @@
                   "",
                   "if (json.status !== 'PENDING_HUMAN_APPROVAL' && pollCount < maxRetries) {",
                   "    pm.environment.set('injection_poll_count', (pollCount + 1).toString());",
-                  "    var start = Date.now();",
-                  "    while (Date.now() - start < 500) {}",
-                  "    pm.execution.setNextRequest('Poll Injection Payout Status');",
+                  "    setTimeout(function () {",
+                  "        pm.execution.setNextRequest('Poll Injection Payout Status');",
+                  "    }, 500);",
                   "} else {",
                   "    pm.execution.setNextRequest('Submit High Value Payout');",
                   "    pm.test('Status escalated to PENDING_HUMAN_APPROVAL', function () {",
@@ -789,19 +970,6 @@
             }
           },
           "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.sendRequest({",
-                  "    url: pm.environment.get('base_url') + '/api/v1/agents/agent-code-reviewer-01/release',",
-                  "    method: 'POST',",
-                  "    header: { 'Authorization': 'Bearer ' + pm.environment.get('operator_token') }",
-                  "}, function (err, res) {});"
-                ]
-              }
-            },
             {
               "listen": "test",
               "script": {
@@ -860,9 +1028,9 @@
                   "",
                   "if (json.status !== 'PENDING_HUMAN_APPROVAL' && pollCount < maxRetries) {",
                   "    pm.environment.set('hitl_poll_count', (pollCount + 1).toString());",
-                  "    var start = Date.now();",
-                  "    while (Date.now() - start < 500) {}",
-                  "    pm.execution.setNextRequest('Poll HITL Status (Expect PENDING_HUMAN_APPROVAL)');",
+                  "    setTimeout(function () {",
+                  "        pm.execution.setNextRequest('Poll HITL Status (Expect PENDING_HUMAN_APPROVAL)');",
+                  "    }, 500);",
                   "} else {",
                   "    pm.execution.setNextRequest('Operator Approve Payout');",
                   "    pm.test('Status is PENDING_HUMAN_APPROVAL', function () {",
@@ -910,8 +1078,7 @@
                 "exec": [
                   "pm.test('Status code is 200', function () {",
                   "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.environment.set('hitl_paid_poll_count', '0');"
+                  "});"
                 ]
               }
             }
@@ -956,9 +1123,9 @@
                   "",
                   "if (json.status !== 'PAID' && pollCount < maxRetries) {",
                   "    pm.environment.set('hitl_paid_poll_count', (pollCount + 1).toString());",
-                  "    var start = Date.now();",
-                  "    while (Date.now() - start < 500) {}",
-                  "    pm.execution.setNextRequest('Poll HITL Status (Expect PAID)');",
+                  "    setTimeout(function () {",
+                  "        pm.execution.setNextRequest('Poll HITL Status (Expect PAID)');",
+                  "    }, 500);",
                   "} else {",
                   "    pm.execution.setNextRequest('Get Payout Status');",
                   "    pm.test('Final status reached PAID', function () {",
