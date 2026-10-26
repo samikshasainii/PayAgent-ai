@@ -626,6 +626,116 @@ if settings.DEMO_MODE and settings.APP_ENV != "production":
         res = await process_webhook_event(db, body, headers={}, source="simulated")
         return res
 
+# --- 1-Click Demo Simulator Endpoints (M3.8) ---
+
+def require_simulator_enabled():
+    if not settings.SIMULATOR_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+class DemoScenarioOut(BaseModel):
+    payout_request_id: str
+    task_id: str
+    agent_id: str
+    status: str
+    decision_reasons: List[str]
+
+
+class DemoTaskCreate(BaseModel):
+    agent_id: str
+
+
+class DemoTaskOut(BaseModel):
+    task_id: str
+    budget: float
+    deadline: str
+
+
+@app.post("/api/v1/demo/scenarios/{scenario}", response_model=DemoScenarioOut)
+async def post_demo_scenario(
+    scenario: str,
+    _: None = Depends(require_simulator_enabled),
+    __: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Triggers a 1-Click Simulator scenario (happy, rogue, bigticket).
+    Switched off by default; returns 404 when SIMULATOR_ENABLED is false.
+    Requires operator authorization when enabled.
+    """
+    from src.services.demo_scenarios import (
+        trigger_scenario,
+        SimulatorNotConfiguredError,
+        SimulatorCooldownError,
+        UnknownScenarioError
+    )
+    try:
+        res = await trigger_scenario(db, scenario)
+        return res
+    except UnknownScenarioError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "UNKNOWN_SCENARIO", "message": str(e)}
+        )
+    except SimulatorNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "SIMULATOR_NOT_CONFIGURED", "message": str(e)}
+        )
+    except SimulatorCooldownError as e:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(e.retry_after)},
+            content={
+                "error": "SIMULATOR_COOLDOWN",
+                "message": str(e),
+                "retry_after": e.retry_after
+            }
+        )
+
+
+@app.post("/api/v1/demo/tasks", response_model=DemoTaskOut)
+async def post_demo_task(
+    payload: DemoTaskCreate,
+    _: None = Depends(require_simulator_enabled),
+    __: bool = Depends(require_operator_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Creates a fresh demo task assigned to an eligible agent.
+    Switched off by default; returns 404 when SIMULATOR_ENABLED is false.
+    Requires operator authorization when enabled.
+    """
+    from src.services.demo_scenarios import (
+        create_demo_task,
+        SimulatorNotConfiguredError,
+        SimulatorCooldownError,
+        InvalidAgentIdError
+    )
+    try:
+        res = await create_demo_task(db, payload.agent_id)
+        return res
+    except InvalidAgentIdError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "INVALID_AGENT", "message": str(e)}
+        )
+    except SimulatorNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "SIMULATOR_NOT_CONFIGURED", "message": str(e)}
+        )
+    except SimulatorCooldownError as e:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(e.retry_after)},
+            content={
+                "error": "SIMULATOR_COOLDOWN",
+                "message": str(e),
+                "retry_after": e.retry_after
+            }
+        )
+
 # --- Operator AG Grid Static Console ---
 os.makedirs("src/static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
