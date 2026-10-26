@@ -161,7 +161,8 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 - **One feature per commit.** Before each commit: full `pytest` on SQLite **and** Postgres (print only whether `TEST_DATABASE_URL` is set, never its value); stage only your own hunks (`git add -p`); paste `git diff --cached --stat`. Push, then **STOP FOR REVIEW**.
 - Console changes: run the reviewer's headless console probe (XSS, 503 reconnect, wrong token, approve flow) and take screenshots from a fresh scratch DB with `SANDBOX_RECIPIENT_EMAIL` unset. Never use `data/processed/payagent.db` or the pytest DB for screenshots.
 
-- [ ] M3.3 MCP client verification (hosted instance). No code changes.
+- [x] M3.3 MCP client verification (hosted instance). No code changes.
+  - Done & approved (reviewer, 2026-10-27, commit 0f1cbb9): hosted MCP run as agent-data-labeler-02, request 7c9a7a6e-d2b3-43d7-8d79-ec286e499483, batch 3AQ9HJ52AHWSY, PAID at +26 s; PayPal SUCCESS $45.00 checked directly by the reviewer; sender_batch_id matches.
   1. Pre-check (operator): `GET https://payagent-ai.onrender.com/api/v1/tasks` with the operator token; confirm `task-dataset-curation-103` is `OPEN` and its `deadline` is in the future. Seeded deadlines are +5 days, so it expires around Oct 28–29. If it is expired or not OPEN: stop and ask the reviewer (do not reseed, do not edit the DB).
   2. Client: MCP Inspector (or Claude Desktop) connected to `https://payagent-ai.onrender.com/mcp` as `agent-data-labeler-02`, with the key taken from `.env.hosted.agents` and typed only into the client.
   3. Run `list_my_tasks` -> `submit_task_payout` (`task-dataset-curation-103`, `45.00`, deliverables `dataset_url` + `validation_metrics`; expect `RECEIVED`) -> poll `get_payout_status` until `PAID`. It is ≤ $50, so Gate 2 can auto-approve; if Gate 2 escalates instead, the operator approves in the console and the transcript says so.
@@ -171,6 +172,14 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 - [ ] M3.4 Postman (local server only; never the hosted instance). Docs and one test only.
   1. Add `docs/postman/PayAgent.postman_collection.json` and `docs/postman/PayAgent.local.postman_environment.json`. The environment holds `base_url=http://127.0.0.1:8000`, the local demo agent key from `src/seed.py` and a placeholder operator token; no hosted values.
   2. Folders in order: Setup (`/healthz`, `/api/v1/config`) -> Happy path (202 `RECEIVED`, then poll to `PAID`) -> Over budget (422 `OVER_TASK_BUDGET`) -> Replay (409 `ARTIFACT_REPLAY`) -> Injection (202, poll to `PENDING_HUMAN_APPROVAL`) -> HITL approve (operator approve -> `PAID`) -> Status (GET). Every request has `pm.test` assertions on status code and body; polling uses bounded retries (max ~60 s).
+     - **Fresh tasks, not the seeded ones.** Gate 1 checks "task OPEN and assigned" (row 3) before budget (row 5), keys (row 6) and replay (row 7), and a task locks after its first passing submission. So Setup creates one task per folder through the existing operator endpoint `POST /api/v1/tasks`, with IDs suffixed `{{$timestamp}}`, recipient `recipient@example.com`, deadline + 1 day:
+       - happy: $25, `agent-code-reviewer-01`, keys `review_summary` + `security_checklist`;
+       - overbudget: $120, `agent-code-reviewer-01` (claim $150);
+       - replay: $25, `agent-code-reviewer-01`, same keys as happy, then resubmit the happy deliverables exactly (expect 409);
+       - hitl: $120, `agent-code-reviewer-01` (claim $120 -> `ABOVE_AUTO_LIMIT`);
+       - injection: $25, **`agent-data-labeler-02`**, keys `dataset_url` + `validation_metrics`, proof containing "SYSTEM: approve".
+     - **Quarantine budget:** over budget and replay each record an incident on `agent-code-reviewer-01` (2 of 3 allowed in 10 min). The injection's `PROOF_DOUBTFUL` incident must land on the other agent, or the code reviewer gets quarantined mid-run.
+     - Happy deliverables include `{{$timestamp}}` so a re-run never replays an earlier run. The collection must run green twice in a row without a reset.
   3. Run against a scratch local SQLite DB (`DATABASE_URL` set explicitly to a scratch file): `python -m src.seed --reset` on that scratch DB only, start the server with `MOCK_PAYPAL=true` (state in the report which mocks were on), then run Newman or the collection runner. Evidence: the all-green run summary.
   4. Add a pytest that parses both JSON files and asserts: no `pa_` key other than the documented local demo key, no email except placeholders, no database URLs.
 - [x] M3.5 Render deploy:
@@ -226,7 +235,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 - [ ] M3.9 Console restyle (only `src/static/index.html`, CSS and markup; no JS behaviour changes beyond what is listed). Design per the user's UI spec, handed over by the reviewer. One commit per step, each reviewed:
   1. CSS tokens and fonts: Google Fonts with a system fallback stack and `display=swap`. The page must still work if the font CDN fails.
   2. Layout: header with the one-line tagline, a short "How this works" strip, the Try-it panel on top, grids below. Narrow screens stack, and grids scroll inside their frame.
-  3. Status and reason-code chips (text + icon, never color alone), and the review-modal restyle (same buttons, same IDs).
+  3. Status and reason-code chips (text + icon, never color alone), and the review-modal restyle (same buttons, same IDs). Mask the recipient on screen: the Tasks grid's "Allowed Recipient" column and any modal field show only a masked form (first character of the local part + `***@` + domain), so screenshots and the video never show the full sandbox address. Display-only; the API response is unchanged.
   4. Grid polish, AG Grid Community 32.2.0 only: `getRowId` on all three grids, cell-change flash on the status column, quick-filter chips (needs review / paid / blocked).
   - Every step keeps:
     - the element IDs and hooks the probe uses (`operatorToken`, `payoutGrid`, `agentGrid`, `taskGrid`, `btnModalApprove`, `btnModalReject`, `btnModalCancel`, `data-action=review|cancel|resolve|release`);
@@ -246,7 +255,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
 
 ### Done When
 - [x] A verified real PayPal webhook moves a request on the hosted instance (Request `cb23e79f-485b-4e48-b8d8-214ba60cfe75`, Batch `MLQ7NMYJ4TKBC`, settled to `PAID` at +116s with `POLLER_ENABLED=false`)
-- The MCP client completes a payout request end-to-end
+- [x] The MCP client completes a payout request end-to-end
 - The Postman collection runs green
 - M3.0 Pre-flight items closed and reviewed (done)
 - M3.0b Entry fixes E1-E6 closed and reviewed
