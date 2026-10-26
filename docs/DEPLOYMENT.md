@@ -131,3 +131,18 @@ After provisioning the Supabase database and setting `DATABASE_URL`:
   * **File-Only Safety**: Keys are **never** printed to stdout or logged to console in production mode.
   * **Gitignore Guard**: Refuses to write keys unless `git check-ignore -q <path>` confirms the target file is ignored.
   * **Key Rotation for Existing Agents**: On re-runs, existing demo agents have their `api_key_hash` updated in the database to match the newly generated keys (`[.] Agent key rotated: <id>`), ensuring that the credentials written to `.env.hosted.agents` are immediately functional while invalidating previously saved keys.
+
+---
+
+## 6. Webhook-Only Rehearsal Verification
+
+To definitively prove that incoming PayPal webhooks transition payout requests without relying on the 5-second background poller, a live rehearsal was executed with `POLLER_ENABLED=false` on Render:
+
+* **Execution**: `python -m scripts.rehearse_hosted_payout`
+* **Target Host**: `https://payagent-ai.onrender.com`
+* **Payout Request ID**: `cb23e79f-485b-4e48-b8d8-214ba60cfe75` ($25.00 for `task-pr-audit-101`)
+* **PayPal Batch ID**: `MLQ7NMYJ4TKBC`
+* **Timeline**: `RECEIVED` (+0s) -> `SUBMITTED` (+10s, PayPal batch generated) -> `PAID` (+116s).
+* **Verification**: With the poller disabled, the status remained in `SUBMITTED` until PayPal delivered `PAYMENT.PAYOUTS-ITEM.SUCCEEDED`. The webhook signature was cryptographically verified via PayPal's API, and the event was written with `verified=true` in the same database transaction that transitioned the request to `PAID`.
+* **Restoration**: Set `POLLER_ENABLED=true` in Render Dashboard after rehearsal.
+
