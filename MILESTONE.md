@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: Console polish (frontend only, `src/static/index.html`), then 1-Click Simulator.
+- **Next Up**: M3.3 MCP client verification against the hosted URL, then M3.4 Postman, then M3.8 1-Click Simulator, then M3.9 console restyle, then M3.7 hosted rehearsal and video.
 
 ---
 
@@ -154,7 +154,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
   - Approve/reject buttons that show the deliverables and LLM reasoning before confirming
   - Agents grid with hourly burn against the cap and quarantine status (with release action); task list
   - Permanent "MOCK MODE" banner whenever `MOCK_PAYPAL` or `MOCK_LLM` is on (ARCH §6.6; README already promises it)
-- [ ] M3.3 MCP client verification: an MCP-capable client (Claude Desktop or MCP Inspector) runs `list_my_tasks` -> `submit_task_payout` (returns `RECEIVED`) -> polls `get_payout_status` to the Gate 2 decision -> `PAID`, against the local server. Record the transcript.
+- [ ] M3.3 MCP client verification: an MCP-capable client (Claude Desktop or MCP Inspector) runs `list_my_tasks` -> `submit_task_payout` (returns `RECEIVED`) -> polls `get_payout_status` to the Gate 2 decision -> `PAID`, against the hosted instance (https://payagent-ai.onrender.com/mcp), using a seeded hosted agent key read only from the gitignored .env.hosted.agents; the recorded transcript must redact the key, the operator token and any recipient email.
 - [ ] M3.4 Postman: `docs/postman/PayAgent.postman_collection.json` + environment; folders Setup -> Happy path -> Over budget -> Replay -> Injection -> HITL approve -> Status. Requests that submit payouts expect 202 and poll status. Runs green with the collection runner.
 - [x] M3.5 Render deploy:
   - Done & approved (reviewer, 2026-10-24, commits `4585a6c`, `49338d1`, `40e8362`, `5e00bc9`, `e640d39`):
@@ -173,7 +173,9 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
     - Re-enabled `POLLER_ENABLED=true` on Render after rehearsal verification.
 - [x] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
   - Done & approved (reviewer, 2026-10-22, commits 89c765f, b51c849, 370557f): snapshot covers types, nullability, keys, unique, indexes, FKs and enum values; Postgres enum guard; fail-closed --recreate-schema --yes-drop-everything; ARCHITECTURE §4.4.
-- [ ] M3.7 Final rehearsal on the hosted instance: warm the instance -> `python -m src.seed --reset` -> one warm-up `--scenario happy` -> `python -m src.seed --reset` -> `--scenario all`; operator approves escalate in the console and watches it reach `PAID` over SSE; verify every batch ID directly against PayPal; record the rough cut.
+- [ ] M3.8 1-Click Simulator: operator-protected scenario endpoint behind its own SIMULATOR_ENABLED switch (hosted runs with DEMO_MODE=false); each run creates a fresh task and reuses process_payout_submission; global rate limit with a 429 cooldown; try-it panel in the console. Spec comes from the reviewer before work starts.
+- [ ] M3.9 Console restyle (src/static/index.html, frontend only): built around the Simulator's try-it panel. Spec comes from the reviewer before work starts.
+- [ ] M3.7 Final rehearsal on the hosted instance: warm the instance -> run Simulator scenarios A (honest), B (rogue), C (big-ticket) from the console; operator approves C and watches it reach PAID over SSE; verify every batch ID directly against PayPal; record the rough cut. Never run src.seed --reset or any reset against the hosted database.
 
 ### Done When
 - [x] A verified real PayPal webhook moves a request on the hosted instance (Request `cb23e79f-485b-4e48-b8d8-214ba60cfe75`, Batch `MLQ7NMYJ4TKBC`, settled to `PAID` at +116s with `POLLER_ENABLED=false`)

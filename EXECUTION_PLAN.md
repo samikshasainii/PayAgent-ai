@@ -179,39 +179,3 @@ The slice uses the **final** schema (task registry, UUID IDs, budget windows), s
 | Render cold start / ephemeral disk | Medium | External Postgres; README warns about the cold start; local run is primary. |
 | Scope creep (PYUSD, Toolkit copilot) | Medium | Out of scope until M3 is done; stretch order fixed above. |
 | Video overrun | High | Script is capped at 2:30 against the 3:00 limit. |
-| Hosted demo down during judging (Dec 1–15) | High | §6 checklist: code freeze, auto-deploy off, monitoring, free-tier limits checked. |
-
----
-
-## 6. *CHECK BEFORE SUBMISSION*
-
-> Work through this list **before** submitting on Nov 3, so nothing here breaks the working build at the last minute.
-> Our deadline stays **2026-11-03**. Devpost's own close (Nov 12, 12:00 pm PST, from search snippets, not yet confirmed on the rules page) is only a backstop.
-> Rules: the project must stay available "free of charge and without any restriction… until the Judging Period ends". Judging runs **Dec 1, 2:00 pm PT – Dec 15, 8:00 am PT**. Judges may also score from the video and description alone, so the video is our insurance.
-
-### 6.1 Hardening (do it before the freeze, test it, or skip it)
-- [ ] **Rate limiting (decide by Nov 1):** add a per-IP limit to the public and `/mcp` endpoints so spam can't use up the Gemini quota or the DB connections. Add it only with tests and a full green `pytest` run; if time is short, skip it rather than risk the build.
-- [ ] **CORS:** `allow_origins=["*"]` (`src/main.py`). Narrow it to `https://payagent-ai.onrender.com` only if the console and MCP clients still work afterwards.
-- [ ] **Secrets:** `OPERATOR_TOKEN` must not appear in the README, the video, the Devpost text or screenshots. Judges get only the agent key and the sandbox recipient login.
-- [x] **Gemini billing:** confirmed **not billed** (2026-10-24), so overuse is blocked instead of charged. Running out of quota fails closed (escalates to human review), which is acceptable.
-
-### 6.2 Code freeze (right after submitting)
-- [ ] Tag the submitted commit: `git tag submission-final && git push origin submission-final`.
-- [ ] Render → Settings → **Auto-Deploy: Off**. No pushes to `main` during judging (a deploy gap caused a 502 on 2026-10-23).
-- [ ] Recovery plan: Render → **Manual Deploy** of `submission-final`, or **Restart service**. Nothing else.
-
-### 6.3 Free-tier limits
-- [ ] **Render:** 750 free instance-hours/month across the whole workspace. This service alone uses ~744 in December, so suspend or delete every other free Render service.
-- [ ] **Supabase:** free projects pause after ~7 days of inactivity. The `/healthz` `SELECT 1` should keep it active; still, check the dashboard shows **Active** around Nov 25 and again Nov 30.
-- [ ] **Supabase backup:** export a DB dump before Dec 1.
-- [ ] **PayPal sandbox:** business account balance is enough for judge payouts; sandbox recipient login works.
-
-### 6.4 Monitoring during judging
-- [ ] UptimeRobot: alerts to **phone** as well as email.
-- [ ] Switch the `/healthz` monitor to a **keyword** check for `"ok"`, so a 503 `db_unavailable` counts as down.
-- [ ] Add a second monitor on `/` (console page).
-- [ ] When an alert fires: Render → **Events** (an unexpected deploy is the red flag) → **Logs** (OOM, traceback, restart) → recover per §6.2.
-- [ ] Spot-check the PayPal sandbox activity a few times; every payout should be one we or a judge made.
-
-### 6.5 After judging (Dec 15)
-- [ ] Rotate `OPERATOR_TOKEN`, agent keys, the PayPal sandbox secret and the Gemini key.
