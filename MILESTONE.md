@@ -154,8 +154,25 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
   - Approve/reject buttons that show the deliverables and LLM reasoning before confirming
   - Agents grid with hourly burn against the cap and quarantine status (with release action); task list
   - Permanent "MOCK MODE" banner whenever `MOCK_PAYPAL` or `MOCK_LLM` is on (ARCH §6.6; README already promises it)
-- [ ] M3.3 MCP client verification: an MCP-capable client (Claude Desktop or MCP Inspector) runs `list_my_tasks` -> `submit_task_payout` (returns `RECEIVED`) -> polls `get_payout_status` to the Gate 2 decision -> `PAID`, against the hosted instance (https://payagent-ai.onrender.com/mcp), using a seeded hosted agent key read only from the gitignored .env.hosted.agents; the recorded transcript must redact the key, the operator token and any recipient email.
-- [ ] M3.4 Postman: `docs/postman/PayAgent.postman_collection.json` + environment; folders Setup -> Happy path -> Over budget -> Replay -> Injection -> HITL approve -> Status. Requests that submit payouts expect 202 and poll status. Runs green with the collection runner.
+### Rules for M3.3–M3.9 (goal: submission-ready without touching the core; breaking a rule is an automatic CHANGES REQUIRED)
+- **Do not modify** `src/services/{payout_service,state_machine,guardian,gate2_reviewer,poller,webhooks,paypal_client,status_mapping,events,auth,proof_review}.py`, `src/models/*`, `src/mcp_server/*`, `tests/schema_snapshot.json`, `requirements.txt`, the CORS/MCP allowlist setup in `src/main.py`, or the `--workers 1` start command. If a step seems to need a change there, stop and ask the reviewer.
+- **No schema changes** (M3.6 freeze), and **never** run `src.seed --reset`, `--recreate-schema` or any reset/drop against the hosted database.
+- **Never commit or print** an agent key, the operator token, a database URL, the Supabase project ref or any recipient email. Transcripts, screenshots and test output must redact them (`pa_***`, `<operator-token>`). Agent keys are read only from the gitignored `.env.hosted.agents`.
+- **One feature per commit.** Before each commit: full `pytest` on SQLite **and** Postgres (print only whether `TEST_DATABASE_URL` is set, never its value); stage only your own hunks (`git add -p`); paste `git diff --cached --stat`. Push, then **STOP FOR REVIEW**.
+- Console changes: run the reviewer's headless console probe (XSS, 503 reconnect, wrong token, approve flow) and take screenshots from a fresh scratch DB with `SANDBOX_RECIPIENT_EMAIL` unset. Never use `data/processed/payagent.db` or the pytest DB for screenshots.
+
+- [ ] M3.3 MCP client verification (hosted instance). No code changes.
+  1. Pre-check (operator): `GET https://payagent-ai.onrender.com/api/v1/tasks` with the operator token; confirm `task-dataset-curation-103` is `OPEN` and its `deadline` is in the future. Seeded deadlines are +5 days, so it expires around Oct 28–29. If it is expired or not OPEN: stop and ask the reviewer (do not reseed, do not edit the DB).
+  2. Client: MCP Inspector (or Claude Desktop) connected to `https://payagent-ai.onrender.com/mcp` as `agent-data-labeler-02`, with the key taken from `.env.hosted.agents` and typed only into the client.
+  3. Run `list_my_tasks` -> `submit_task_payout` (`task-dataset-curation-103`, `45.00`, deliverables `dataset_url` + `validation_metrics`; expect `RECEIVED`) -> poll `get_payout_status` until `PAID`. It is ≤ $50, so Gate 2 can auto-approve; if Gate 2 escalates instead, the operator approves in the console and the transcript says so.
+  4. Verify the batch ID directly against PayPal (read-only GET) and check `sender_batch_id` = `payagent_<request id without dashes>`.
+  5. Commit `docs/mcp/M3.3_transcript.md`: tool calls and responses with the key as `pa_***`, request ID, batch ID, timestamps; no recipient email.
+  6. If the host check returns 421/403 or the client cannot connect: stop and report the exact error. Do not edit the MCP allowlist.
+- [ ] M3.4 Postman (local server only; never the hosted instance). Docs and one test only.
+  1. Add `docs/postman/PayAgent.postman_collection.json` and `docs/postman/PayAgent.local.postman_environment.json`. The environment holds `base_url=http://127.0.0.1:8000`, the local demo agent key from `src/seed.py` and a placeholder operator token; no hosted values.
+  2. Folders in order: Setup (`/healthz`, `/api/v1/config`) -> Happy path (202 `RECEIVED`, then poll to `PAID`) -> Over budget (422 `OVER_TASK_BUDGET`) -> Replay (409 `ARTIFACT_REPLAY`) -> Injection (202, poll to `PENDING_HUMAN_APPROVAL`) -> HITL approve (operator approve -> `PAID`) -> Status (GET). Every request has `pm.test` assertions on status code and body; polling uses bounded retries (max ~60 s).
+  3. Run against a scratch local SQLite DB (`DATABASE_URL` set explicitly to a scratch file): `python -m src.seed --reset` on that scratch DB only, start the server with `MOCK_PAYPAL=true` (state in the report which mocks were on), then run Newman or the collection runner. Evidence: the all-green run summary.
+  4. Add a pytest that parses both JSON files and asserts: no `pa_` key other than the documented local demo key, no email except placeholders, no database URLs.
 - [x] M3.5 Render deploy:
   - Done & approved (reviewer, 2026-10-24, commits `4585a6c`, `49338d1`, `40e8362`, `5e00bc9`, `e640d39`):
   - **Hosted URL**: `https://payagent-ai.onrender.com` (Render Web Service, region Virginia, Blueprint `render.yaml`, `--workers 1`).
@@ -173,9 +190,59 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
     - Re-enabled `POLLER_ENABLED=true` on Render after rehearsal verification.
 - [x] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
   - Done & approved (reviewer, 2026-10-22, commits 89c765f, b51c849, 370557f): snapshot covers types, nullability, keys, unique, indexes, FKs and enum values; Postgres enum guard; fail-closed --recreate-schema --yes-drop-everything; ARCHITECTURE §4.4.
-- [ ] M3.8 1-Click Simulator: operator-protected scenario endpoint behind its own SIMULATOR_ENABLED switch (hosted runs with DEMO_MODE=false); each run creates a fresh task and reuses process_payout_submission; global rate limit with a 429 cooldown; try-it panel in the console. Spec comes from the reviewer before work starts.
-- [ ] M3.9 Console restyle (src/static/index.html, frontend only): built around the Simulator's try-it panel. Spec comes from the reviewer before work starts.
-- [ ] M3.7 Final rehearsal on the hosted instance: warm the instance -> run Simulator scenarios A (honest), B (rogue), C (big-ticket) from the console; operator approves C and watches it reach PAID over SSE; verify every batch ID directly against PayPal; record the rough cut. Never run src.seed --reset or any reset against the hosted database.
+- [ ] M3.8 1-Click Simulator (additive: one new service file, new endpoints, one config flag, a console panel). Separate commits 8a–8e, each reviewed.
+  - Why these rules: three `OVER_TASK_BUDGET` incidents in 10 min quarantine an agent, the $200 hourly cap fills after a few runs, and identical deliverables trip `ARTIFACT_REPLAY`. A shared simulator agent would break for every judge, so **every run gets a fresh agent, a fresh task and salted deliverables**.
+  - 8a Config: `SIMULATOR_ENABLED: bool = False` in `src/config.py`; add one key `SIMULATOR_ENABLED: "true"` to `render.yaml` (no other `render.yaml` change); update `tests/test_deploy_config.py`. After the Blueprint sync, the operator confirms in the Render dashboard that every existing env var **name** is still present and that `POLLER_ENABLED=true`, `APP_ENV=production` and `DEMO_MODE=false`.
+  - 8b Service: new `src/services/demo_scenarios.py`. Per run:
+    - Create agent `sim-<scenario>-<8 hex>` (name "Simulator: <scenario title>", `hourly_cap` 200.00, `api_key_hash` = sha256 of 32 random bytes, never returned or logged).
+    - Create task `sim-task-<8 hex>` assigned to it: `allowed_recipient = settings.SANDBOX_RECIPIENT_EMAIL`, deadline now + 1 day, the scenario's budget and `required_deliverables`.
+    - **Commit the agent and task first** (the lock-race path in `process_payout_submission` rolls back the session), publish the task/agent events, then call `process_payout_submission(db, agent, PayoutRequestIn(...))`. Never call PayPal, the LLM or the state machine directly.
+    - Deliverables reuse the texts in `scripts/demo_agent.py` and include `[run <salt>]`.
+    - Exactly three scenarios:
+      - **A happy:** budget 25.00, claim 25.00. Expect `RECEIVED`, usually ending `PAID` (if Gemini is unavailable it escalates to `PENDING_HUMAN_APPROVAL`; that is correct behaviour, not a bug).
+      - **B rogue:** budget 120.00, claim 150.00. Expect 422 `OVER_TASK_BUDGET`, `POLICY_REJECTED`, no LLM call.
+      - **C big-ticket:** budget 120.00, claim 120.00. Expect `PENDING_HUMAN_APPROVAL` with `ABOVE_AUTO_LIMIT`.
+    - Missing `SANDBOX_RECIPIENT_EMAIL` -> 503 `SIMULATOR_NOT_CONFIGURED`.
+  - 8c Endpoints in `src/main.py`, registered only `if settings.SIMULATOR_ENABLED`, each with `Depends(require_operator_token)`; no existing route changes:
+    - `POST /api/v1/demo/scenarios/{scenario}` (`happy|rogue|bigticket`, otherwise 404) -> returns only `{payout_request_id, task_id, agent_id, status}`.
+    - `POST /api/v1/demo/tasks` with body `{agent_id}`, limited to `agent-code-reviewer-01` / `agent-data-labeler-02` -> creates a fresh OPEN task (budget 25.00, deadline + 7 days, server-side recipient) so MCP users always have a task (seeded tasks expire before judging); returns only `{task_id, budget, deadline}`.
+    - One global in-process limiter shared by both endpoints: 1 per 10 s, 30 per hour, 150 per day -> 429 `SIMULATOR_COOLDOWN` with `retry_after` seconds. The single worker makes in-process state valid.
+  - 8d Tests (new `tests/test_demo_scenarios.py`, with `MOCK_PAYPAL`/`MOCK_LLM`):
+    - switch off -> 404; no or wrong token -> 401; limiter -> 429 (reset the limiter between tests);
+    - each run creates a new agent and task; A twice -> two `RECEIVED`, no `ARTIFACT_REPLAY`;
+    - B -> `POLICY_REJECTED` and the LLM is never called; B three times does not quarantine the seeded agents;
+    - C -> `PENDING_HUMAN_APPROVAL`, then operator approve -> `PAID`;
+    - `/demo/tasks` rejects other agent IDs;
+    - no response body or log line contains the recipient email or an API key;
+    - all existing tests still pass unchanged.
+
+    Reviewer mutation checks: removing the auth, the limiter or the salt must make a test fail.
+  - 8e Console Try-it panel (`src/static/index.html`) and hosted check:
+    - cards A–C plus a "Give my agent a task" button; Run buttons are disabled while a run is in flight;
+    - a simple result line per card (status + reason codes), updated by the existing SSE trigger and debounced REST refresh; no rows built from SSE payloads;
+    - honest copy for the AI wait ("AI reviewing, free-tier model, up to ~30 s"), the 429 cooldown and an `LLM_UNAVAILABLE` escalation;
+    - `textContent` for all server data, no inline handlers; console probe green;
+    - then deploy, run A, B and C once each on the hosted instance, approve C in the console, verify every batch ID directly against PayPal; the operator checks the sandbox business balance.
+- [ ] M3.9 Console restyle (only `src/static/index.html`, CSS and markup; no JS behaviour changes beyond what is listed). Design per the user's UI spec, handed over by the reviewer. One commit per step, each reviewed:
+  1. CSS tokens and fonts: Google Fonts with a system fallback stack and `display=swap`. The page must still work if the font CDN fails.
+  2. Layout: header with the one-line tagline, a short "How this works" strip, the Try-it panel on top, grids below. Narrow screens stack, and grids scroll inside their frame.
+  3. Status and reason-code chips (text + icon, never color alone), and the review-modal restyle (same buttons, same IDs).
+  4. Grid polish, AG Grid Community 32.2.0 only: `getRowId` on all three grids, cell-change flash on the status column, quick-filter chips (needs review / paid / blocked).
+  - Every step keeps:
+    - the element IDs and hooks the probe uses (`operatorToken`, `payoutGrid`, `agentGrid`, `taskGrid`, `btnModalApprove`, `btnModalReject`, `btnModalCancel`, `data-action=review|cancel|resolve|release`);
+    - `escapeHtml`/`textContent` on server data;
+    - SSE reconnect, 503 handling and wrong-token handling, unchanged;
+    - the AG Grid SRI tags;
+    - the token in `sessionStorage` only (`localStorage` only for UI preferences, wrapped in try/catch);
+    - the MOCK MODE banner.
+- [ ] M3.7 Final rehearsal on the hosted instance (after M3.8 and M3.9 are deployed): warm the instance -> run Simulator A, B and C from the console -> operator approves C and watches it reach `PAID` over SSE -> verify every batch ID directly against PayPal -> record the rough cut. **Never run `src.seed --reset` or any reset against the hosted database**; the Simulator creates fresh tasks, so no reset is needed.
+
+### Not doing before submission (could destabilise the working build)
+- Per-IP rate-limit middleware on existing endpoints, CORS narrowing, MCP allowlist edits.
+- Render env groups, Render Workflows, background workers or cron jobs; any `render.yaml` change beyond the one `SIMULATOR_ENABLED` key.
+- Dependency changes (including removing unused packages), LLM model or prompt changes, policy threshold changes.
+- Injection try-it card, GitHub PR verifier, natural-language "Ask Treasury" bar, Zapier, data purge job, webhook-confirmed badge, India/UPI scenario.
+- Console extras: live ticker, animated step tracker, row slide/glow animations, pinned totals row.
 
 ### Done When
 - [x] A verified real PayPal webhook moves a request on the hosted instance (Request `cb23e79f-485b-4e48-b8d8-214ba60cfe75`, Batch `MLQ7NMYJ4TKBC`, settled to `PAID` at +116s with `POLLER_ENABLED=false`)
