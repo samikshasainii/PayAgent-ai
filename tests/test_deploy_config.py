@@ -405,3 +405,12 @@ async def test_lifespan_poller_enabled_switch(monkeypatch, caplog):
 
     # Shutdown stops the poller
     assert poller._running is False
+
+
+def test_simulator_enabled_default_off():
+    """M3.8 8a: SIMULATOR_ENABLED must default to False so backend changes are inert when deployed to Render."""
+    from src.config import Settings, settings
+    assert settings.SIMULATOR_ENABLED is False
+    fresh_settings = Settings()
+    assert fresh_settings.SIMULATOR_ENABLED is False
+
