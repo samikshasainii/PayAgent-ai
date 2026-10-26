@@ -20,7 +20,7 @@ from src.services.payout_service import process_payout_submission
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class SimulatorNotConfiguredError(Exception):
