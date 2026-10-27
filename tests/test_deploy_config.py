@@ -414,3 +414,13 @@ def test_simulator_enabled_default_off():
     fresh_settings = Settings()
     assert fresh_settings.SIMULATOR_ENABLED is False
 
+
+def test_render_yaml_enables_simulator():
+    """M3.8 8e: render.yaml sets SIMULATOR_ENABLED to true for hosted demo."""
+    import yaml
+    with open("render.yaml", "r", encoding="utf-8") as f:
+        doc = yaml.safe_load(f)
+    env_vars = {item["key"]: item.get("value") for item in doc["services"][0]["envVars"]}
+    assert env_vars.get("SIMULATOR_ENABLED") == "true"
+
+
