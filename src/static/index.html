@@ -1613,16 +1613,14 @@
             },
             {
                 headerName: "PayPal",
-                width: 190,
+                width: 160,
                 cellClass: "cell-mono",
                 cellRenderer: p => {
                     const row = p.data || {};
                     const batchRaw = row.payout_batch_id || "";
-                    const txnRaw = (row.items && row.items[0] && row.items[0].transaction_id) ? row.items[0].transaction_id : "";
-                    const batchVal = batchRaw ? escapeHtml(batchRaw) : "-";
-                    const txnVal = txnRaw ? escapeHtml(txnRaw) : "-";
-                    const tooltip = `BATCH // ${batchRaw || "-"} | TXN // ${txnRaw || "-"}`;
-                    return `<div title="${escapeHtml(tooltip)}" style="line-height: 1.3; font-size: 11px; display: flex; flex-direction: column; justify-content: center; height: 100%;"><div>BATCH // ${batchVal}</div><div>TXN // ${txnVal}</div></div>`;
+                    const batchVal = batchRaw ? `BATCH // ${escapeHtml(batchRaw)}` : "-";
+                    const tooltip = batchRaw ? `BATCH // ${batchRaw}` : "-";
+                    return `<span title="${escapeHtml(tooltip)}">${batchVal}</span>`;
                 }
             },
             { 
