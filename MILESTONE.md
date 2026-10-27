@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: M3.9 console restyle, then M3.7 hosted rehearsal and video.
+- **Next Up**: M3.7 hosted rehearsal and video.
 
 ---
 
@@ -237,7 +237,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
     - honest copy for the AI wait ("AI reviewing, free-tier model, up to ~30 s"), the 429 cooldown and an `LLM_UNAVAILABLE` escalation;
     - `textContent` for all server data, no inline handlers; console probe green;
     - then deploy, run A, B and C once each on the hosted instance, approve C in the console, verify every batch ID directly against PayPal; the operator checks the sandbox business balance.
-- [ ] M3.9 Console restyle (only `src/static/index.html`, CSS and markup; no JS behaviour changes beyond what is listed). Design per the user's UI spec, handed over by the reviewer. One commit per step, each reviewed:
+- [x] M3.9 Console restyle (only `src/static/index.html`, CSS and markup; no JS behaviour changes beyond what is listed). Design per the user's UI spec, handed over by the reviewer. Commits: `2da976c`, `2a01dc7`, `d1e8e4c`, `b93e3c9`, `00d5dba`. One commit per step, each reviewed:
   1. CSS tokens and fonts: Google Fonts with a system fallback stack and `display=swap`. The page must still work if the font CDN fails.
   2. Layout: header with the one-line tagline, a short "How this works" strip, the Try-it panel on top, grids below. Narrow screens stack, and grids scroll inside their frame.
   3. Status and reason-code chips (text + icon, never color alone), and the review-modal restyle (same buttons, same IDs). Mask the recipient on screen: the Tasks grid's "Allowed Recipient" column and any modal field show only a masked form (first character of the local part + `***@` + domain), so screenshots and the video never show the full sandbox address. Display-only; the API response is unchanged.
