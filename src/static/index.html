@@ -580,7 +580,7 @@
 
         .ag-theme-alpine .ag-cell-data-changed,
         .ag-theme-alpine-dark .ag-cell-data-changed {
-            background-color: rgba(0, 245, 160, 0.25) !important;
+            background-color: rgba(0, 75, 255, 0.30) !important;
             transition: background-color 1s ease-out;
         }
         .ag-theme-alpine .ag-cell-data-changed-animation,
@@ -641,8 +641,7 @@
         }
 
         /* PAID: solid --accent with ✓ */
-        .badge-PAID,
-        .badge-APPROVED {
+        .badge-PAID {
             background-color: var(--accent);
             color: var(--text);
             border: 1px solid var(--accent);
@@ -650,6 +649,7 @@
 
         /* in flight: accent outline with a pulsing dot */
         .badge-in-flight,
+        .badge-APPROVED,
         .badge-RECEIVED,
         .badge-SUBMITTED {
             background-color: transparent;
@@ -1263,8 +1263,11 @@
         // --- Status Badge Helpers ---
         function getStatusBadgeHtml(status) {
             status = status || "UNKNOWN";
-            if (status === "PAID" || status === "APPROVED") {
+            if (status === "PAID") {
                 return `<span class="status-badge badge-PAID">✓ PAID</span>`;
+            }
+            if (status === "APPROVED") {
+                return `<span class="status-badge badge-in-flight"><span class="dot-pulse"></span> Approved · sending</span>`;
             }
             if (status === "RECEIVED" || status === "SUBMITTED" || status === "IN_PROGRESS") {
                 const label = status === "RECEIVED" ? "In Review" : status;
@@ -1298,9 +1301,15 @@
             const chip = document.createElement("span");
             chip.className = "status-badge";
             status = status || "UNKNOWN";
-            if (status === "PAID" || status === "APPROVED") {
+            if (status === "PAID") {
                 chip.classList.add("badge-PAID");
                 chip.textContent = "✓ PAID";
+            } else if (status === "APPROVED") {
+                chip.classList.add("badge-in-flight");
+                const dot = document.createElement("span");
+                dot.className = "dot-pulse";
+                chip.appendChild(dot);
+                chip.appendChild(document.createTextNode(" Approved · sending"));
             } else if (status === "RECEIVED" || status === "SUBMITTED" || status === "IN_PROGRESS") {
                 chip.classList.add("badge-in-flight");
                 const dot = document.createElement("span");
@@ -1356,7 +1365,7 @@
                 return status === "PENDING_HUMAN_APPROVAL";
             }
             if (currentPayoutFilter === "paid") {
-                return status === "PAID" || status === "APPROVED";
+                return status === "PAID";
             }
             if (currentPayoutFilter === "blocked") {
                 return status === "BLOCKED" || status === "POLICY_REJECTED" || status === "HUMAN_REJECTED";
