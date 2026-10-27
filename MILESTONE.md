@@ -17,7 +17,7 @@
   - Webhooks Hardened (P0 & P1 Resolved): Unsigned webhooks in live mode rejected with HTTP 400 `WEBHOOK_UNVERIFIED` (mock mode only may bypass). Unverified webhooks do not count for deduplication, ensuring failed signature deliveries never block PayPal retries. Monotonic FSM progression enforced.
   - Asynchronous Gate 2 (merged from `feat/async-gate2`): Gate 1 returns 202 `RECEIVED`; the LLM review runs in the background and decides via CAS; a sweeper resumes orphaned reviews after restart. Tasks lock at Gate 1 (one task, one payout), fixing a double-payment path. See ARCHITECTURE.md §5.6.
   - End-to-End Rehearsal (live PayPal sandbox + real Gemini, `--scenario all`): happy $25 -> 202 `RECEIVED` -> Gate 2 `AUTO_APPROVED` in 11.7s -> `SUBMITTED` -> poller `PAID`. Request `af6ceb26-942b-4e10-842f-df0ce1afe21f`, batch `UKC87D9JZ2ZDU`, item `XT6XFF4T5HPZA`; reviewer confirmed `SUCCESS` $25.00 directly against PayPal, `sender_batch_id` matches the request. Tamper -> 422 `OVER_TASK_BUDGET` (no LLM call). Escalate $120 -> `PENDING_HUMAN_APPROVAL` in 44.9s.
-- **Next Up**: M3.8 1-Click Simulator (8a–8e), then M3.9 console restyle, then M3.7 hosted rehearsal and video.
+- **Next Up**: M3.9 console restyle, then M3.7 hosted rehearsal and video.
 
 ---
 
@@ -200,7 +200,11 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
     - Re-enabled `POLLER_ENABLED=true` on Render after rehearsal verification.
 - [x] M3.6 (gate for M3.5; do it early, right after M3.0b) Schema freeze before the first Render deploy: there are no migrations, so any later column change breaks the hosted DB. Either freeze the schema or add a minimal migration step.
   - Done & approved (reviewer, 2026-10-22, commits 89c765f, b51c849, 370557f): snapshot covers types, nullability, keys, unique, indexes, FKs and enum values; Postgres enum guard; fail-closed --recreate-schema --yes-drop-everything; ARCHITECTURE §4.4.
-- [ ] M3.8 1-Click Simulator (additive: one new service file, new endpoints, one config flag, a console panel). Separate commits 8a–8e, each reviewed.
+- [x] M3.8 1-Click Simulator (additive: one new service file, new endpoints, one config flag, a console panel). Separate commits 8a–8e, each reviewed.
+  - Done & approved (reviewer, 2026-10-28):
+    - A, Honest: request `1e33863b-5460-4d68-8491-a8799ad6d926` reached PAID (AUTO_APPROVED). Batch `C55G5Q3G2NPEL` shows SUCCESS for $25.00, and its sender_batch_id matches the request.
+    - B, Rogue: request `abcae382-70cd-49c5-a869-c9031afc0f59` was POLICY_REJECTED (OVER_TASK_BUDGET). No batch was created.
+    - C, Big-ticket: request `ccd73ef3-322a-4e2c-a2ce-31e662fae8f3` was escalated (ABOVE_AUTO_LIMIT), operator approved, and it reached PAID. Batch `H4LF6K2C89AN2` shows SUCCESS for $120.00, and its sender_batch_id matches the request.
   - Why these rules: three `OVER_TASK_BUDGET` incidents in 10 min quarantine an agent, the $200 hourly cap fills after a few runs, and identical deliverables trip `ARTIFACT_REPLAY`. A shared simulator agent would break for every judge, so **every run gets a fresh agent, a fresh task and salted deliverables**.
   - 8a Config: `SIMULATOR_ENABLED: bool = False` in `src/config.py`; add one key `SIMULATOR_ENABLED: "true"` to `render.yaml` (no other `render.yaml` change); update `tests/test_deploy_config.py`. After the Blueprint sync, the operator confirms in the Render dashboard that every existing env var **name** is still present and that `POLLER_ENABLED=true`, `APP_ENV=production` and `DEMO_MODE=false`.
   - 8b Service: new `src/services/demo_scenarios.py`. Per run:
