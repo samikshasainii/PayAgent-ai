@@ -453,8 +453,8 @@
 
         .scenario-card-header {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 0.5rem;
         }
 
@@ -462,6 +462,7 @@
             font-size: 15px;
             font-weight: 700;
             color: var(--text);
+            line-height: 1.2;
         }
 
         .scenario-card-question {
@@ -558,6 +559,7 @@
             overflow: hidden;
         }
 
+        /* Status chips & badges */
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -571,25 +573,89 @@
             white-space: nowrap;
         }
 
-        .badge-PAID { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
-        .badge-PENDING_HUMAN_APPROVAL { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
-        .badge-POLICY_REJECTED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
-        .badge-HUMAN_REJECTED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
-        .badge-FAILED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
-        .badge-SUBMITTED { background: var(--surface-ink); color: var(--accent-text); border: 1px solid var(--accent); }
-        .badge-APPROVED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
-        .badge-UNCLAIMED { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #8b5cf6; }
-        .badge-CANCELED { background: rgba(148, 163, 184, 0.2); color: var(--text-muted); border: 1px solid var(--line-muted); }
-        .badge-OPEN { background: var(--surface-ink); color: var(--accent-text); border: 1px solid var(--line); }
-        .badge-ACTIVE { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
-        .badge-QUARANTINED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); font-weight: 800; }
+        /* PAID: solid --accent with ✓ */
+        .badge-PAID,
+        .badge-APPROVED {
+            background-color: var(--accent);
+            color: var(--text);
+            border: 1px solid var(--accent);
+        }
 
-        /* RECEIVED pulse & spinner */
-        .badge-RECEIVED {
-            background: var(--surface-ink);
+        /* in flight: accent outline with a pulsing dot */
+        .badge-in-flight,
+        .badge-RECEIVED,
+        .badge-SUBMITTED {
+            background-color: transparent;
+            color: var(--accent-text);
+            border: 1px solid var(--accent);
+        }
+
+        /* PENDING_HUMAN_APPROVAL: white outline, ● Needs review */
+        .badge-PENDING_HUMAN_APPROVAL {
+            background-color: transparent;
+            color: #ffffff;
+            border: 1px solid #ffffff;
+        }
+        .badge-dot {
+            font-size: 8px;
+            line-height: 1;
+        }
+
+        /* POLICY_REJECTED / REJECTED: --danger outline with ✕ */
+        .badge-REJECTED,
+        .badge-POLICY_REJECTED,
+        .badge-HUMAN_REJECTED,
+        .badge-BLOCKED,
+        .badge-QUARANTINED {
+            background-color: transparent;
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
+        /* FAILED: --danger fill with ✕ */
+        .badge-FAILED {
+            background-color: var(--danger);
+            color: #ffffff;
+            border: 1px solid var(--danger);
+        }
+
+        /* ACTIVE / OPEN: accent outline (dropped leftover green/amber/purple) */
+        .badge-ACTIVE,
+        .badge-OPEN {
+            background-color: transparent;
+            color: var(--accent-text);
+            border: 1px solid var(--accent);
+        }
+
+        .badge-ONHOLD {
+            background-color: transparent;
             color: var(--accent-text);
             border: 1px dashed var(--accent);
         }
+
+        .badge-outline,
+        .badge-CANCELED,
+        .badge-UNCLAIMED {
+            background-color: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--line);
+        }
+
+        /* Pulsing dot for in-flight */
+        .dot-pulse {
+            width: 6px;
+            height: 6px;
+            background-color: var(--accent-text);
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse-dot 1.5s infinite ease-in-out;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.7); }
+        }
+
         .spinner-inline {
             width: 8px;
             height: 8px;
@@ -599,16 +665,17 @@
             display: inline-block;
         }
 
-        /* BLOCKED and ONHOLD distinct styling */
-        .badge-BLOCKED {
-            background: rgba(255, 90, 90, 0.25);
-            color: var(--danger);
-            border: 1px solid var(--danger);
-        }
-        .badge-ONHOLD {
-            background: rgba(217, 119, 6, 0.25);
-            color: #fde68a;
-            border: 1px dashed #f59e0b;
+        /* Screen reader hidden text */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         .risk-badge {
@@ -649,7 +716,7 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0, 0, 0, 0.75);
+            background: rgba(0, 0, 0, 0.70);
             backdrop-filter: blur(4px);
             z-index: 1000;
             align-items: center;
@@ -661,8 +728,8 @@
 
         .modal-card {
             background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: 2px;
+            border: 1px solid var(--accent);
+            border-radius: 0px;
             width: 90%;
             max-width: 650px;
             max-height: 85vh;
@@ -695,31 +762,47 @@
             font-size: 14px;
         }
 
-        .meta-row {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 0.75rem;
+        .receipt-block {
             background: var(--bg);
-            padding: 0.75rem 1rem;
-            border-radius: 2px;
             border: 1px solid var(--line);
-        }
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        .meta-label {
-            font-size: 14px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-        .meta-value {
-            font-weight: 600;
-            color: var(--text);
-            word-break: break-all;
+            border-radius: 0px;
+            padding: 1rem;
             font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
             font-variant-numeric: tabular-nums;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            font-size: 13px;
+        }
+
+        .receipt-row {
+            display: flex;
+            align-items: baseline;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .receipt-label {
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            font-weight: 700;
+            min-width: 140px;
+            flex-shrink: 0;
+        }
+
+        .receipt-value {
+            color: var(--text);
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .receipt-row-reasons {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            margin-top: 0.2rem;
+            padding-top: 0.5rem;
+            border-top: 1px dashed var(--line);
         }
 
         .review-section-title {
@@ -733,11 +816,11 @@
         .box-pre {
             background: var(--bg);
             border: 1px solid var(--line);
-            border-radius: 2px;
+            border-radius: 0px;
             padding: 0.75rem;
             font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
             font-variant-numeric: tabular-nums;
-            font-size: 14px;
+            font-size: 13px;
             white-space: pre-wrap;
             word-break: break-word;
             max-height: 160px;
@@ -759,7 +842,7 @@
             color: var(--text);
             padding: 0.5rem 1.2rem;
             border: 1px solid var(--accent);
-            border-radius: 2px;
+            border-radius: 0px;
             font-weight: 700;
             cursor: pointer;
             font-size: 14px;
@@ -772,7 +855,7 @@
             color: var(--danger);
             padding: 0.5rem 1.2rem;
             border: 1px solid var(--danger);
-            border-radius: 2px;
+            border-radius: 0px;
             font-weight: 700;
             cursor: pointer;
             font-size: 14px;
@@ -785,12 +868,19 @@
             color: var(--text-muted);
             padding: 0.5rem 1rem;
             border: 1px solid var(--line);
-            border-radius: 2px;
+            border-radius: 0px;
             font-weight: 600;
             cursor: pointer;
             font-size: 14px;
         }
         .btn-close-modal:hover { color: var(--text); border-color: var(--accent-text); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .dot-pulse, .spinner-inline, .connection-pill.live .dot {
+                animation: none !important;
+                box-shadow: none !important;
+            }
+        }
 
         #toast {
             position: fixed;
@@ -900,7 +990,7 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">1. Honest Agent</span>
-                            <span class="status-badge badge-PAID">Paid</span>
+                            <span class="status-badge badge-PAID">✓ Paid</span>
                         </div>
                         <p class="scenario-card-question">What if the agent did the work honestly?</p>
                         <p class="scenario-card-desc">
@@ -918,11 +1008,11 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">2. Rogue Agent</span>
-                            <span class="status-badge badge-POLICY_REJECTED">Blocked by rules · OVER_TASK_BUDGET</span>
+                            <span class="status-badge badge-POLICY_REJECTED">✕ Blocked by rules · OVER_TASK_BUDGET</span>
                         </div>
                         <p class="scenario-card-question">What if the agent asks for more than the task is worth?</p>
                         <p class="scenario-card-desc">
-                            Attempts $150 over-claim against $120 budget. Instant rejection by rules check (OVER_TASK_BUDGET) with zero AI review token cost.
+                            Attempts $150 over-claim against $120 budget. Instant rejection by rules check (OVER_TASK_BUDGET) before any AI call.
                         </p>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -936,7 +1026,7 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">3. Big-Ticket Claim</span>
-                            <span class="status-badge badge-PENDING_HUMAN_APPROVAL">Needs your approval → Paid</span>
+                            <span class="status-badge badge-PENDING_HUMAN_APPROVAL"><span class="badge-dot">●</span> Needs review</span>
                         </div>
                         <p class="scenario-card-question">What if the payout is big enough that a human should decide?</p>
                         <p class="scenario-card-desc">
@@ -1007,22 +1097,30 @@
                 <button class="btn-close-modal" id="btnModalCloseHeader">✕</button>
             </div>
             <div class="modal-body">
-                <div class="meta-row">
-                    <div class="meta-item">
-                        <span class="meta-label">Request ID</span>
-                        <span class="meta-value" id="modalReqId">-</span>
+                <div class="receipt-block">
+                    <div class="receipt-row">
+                        <span class="receipt-label">AMOUNT //</span>
+                        <span class="receipt-value" id="modalAmount" style="color: var(--accent-text); font-weight: 700;">$0.00</span>
                     </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Amount</span>
-                        <span class="meta-value" id="modalAmount" style="color: #34d399;">$0.00</span>
+                    <div class="receipt-row">
+                        <span class="receipt-label">TASK //</span>
+                        <span class="receipt-value" id="modalTaskId">-</span>
                     </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Task ID</span>
-                        <span class="meta-value" id="modalTaskId">-</span>
+                    <div class="receipt-row">
+                        <span class="receipt-label">RECIPIENT //</span>
+                        <span class="receipt-value">sandbox account</span>
                     </div>
-                    <div class="meta-item">
-                        <span class="meta-label">Agent ID</span>
-                        <span class="meta-value" id="modalAgentId">-</span>
+                    <div class="receipt-row">
+                        <span class="receipt-label">REQUEST //</span>
+                        <span class="receipt-value" id="modalReqId">-</span>
+                    </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">AGENT //</span>
+                        <span class="receipt-value" id="modalAgentId">-</span>
+                    </div>
+                    <div class="receipt-row-reasons">
+                        <span class="receipt-label">REASON CODES //</span>
+                        <div id="modalReasons" class="reasons-flex-wrap">None</div>
                     </div>
                 </div>
 
@@ -1034,11 +1132,6 @@
                 <div>
                     <div class="review-section-title">AI review of the proof</div>
                     <div id="modalLlmVerdict" class="box-pre">No evaluation recorded</div>
-                </div>
-
-                <div>
-                    <div class="review-section-title">Decision Reasons</div>
-                    <div id="modalReasons" style="display: flex; gap: 6px; flex-wrap: wrap;">None</div>
                 </div>
             </div>
             <div class="modal-actions">
@@ -1086,6 +1179,89 @@
             };
         }
 
+        // --- Status Badge Helpers ---
+        function getStatusBadgeHtml(status) {
+            status = status || "UNKNOWN";
+            if (status === "PAID" || status === "APPROVED") {
+                return `<span class="status-badge badge-PAID">✓ PAID</span>`;
+            }
+            if (status === "RECEIVED" || status === "SUBMITTED" || status === "IN_PROGRESS") {
+                const label = status === "RECEIVED" ? "In Review" : status;
+                return `<span class="status-badge badge-in-flight"><span class="dot-pulse"></span> ${escapeHtml(label)}</span>`;
+            }
+            if (status === "PENDING_HUMAN_APPROVAL") {
+                return `<span class="status-badge badge-PENDING_HUMAN_APPROVAL"><span class="badge-dot">●</span> Needs review<span class="sr-only">PENDING_HUMAN_APPROVAL</span></span>`;
+            }
+            if (status === "POLICY_REJECTED" || status === "REJECTED" || status === "HUMAN_REJECTED") {
+                return `<span class="status-badge badge-REJECTED">✕ ${escapeHtml(status)}</span>`;
+            }
+            if (status === "FAILED") {
+                return `<span class="status-badge badge-FAILED">✕ FAILED</span>`;
+            }
+            if (status === "BLOCKED") {
+                return `<span class="status-badge badge-BLOCKED">✕ BLOCKED</span>`;
+            }
+            if (status === "ONHOLD") {
+                return `<span class="status-badge badge-ONHOLD">ONHOLD</span>`;
+            }
+            if (status === "ACTIVE" || status === "OPEN") {
+                return `<span class="status-badge badge-ACTIVE">${escapeHtml(status)}</span>`;
+            }
+            if (status === "QUARANTINED") {
+                return `<span class="status-badge badge-QUARANTINED">✕ QUARANTINED</span>`;
+            }
+            return `<span class="status-badge badge-outline">${escapeHtml(status)}</span>`;
+        }
+
+        function createStatusChipNode(status) {
+            const chip = document.createElement("span");
+            chip.className = "status-badge";
+            status = status || "UNKNOWN";
+            if (status === "PAID" || status === "APPROVED") {
+                chip.classList.add("badge-PAID");
+                chip.textContent = "✓ PAID";
+            } else if (status === "RECEIVED" || status === "SUBMITTED" || status === "IN_PROGRESS") {
+                chip.classList.add("badge-in-flight");
+                const dot = document.createElement("span");
+                dot.className = "dot-pulse";
+                chip.appendChild(dot);
+                chip.appendChild(document.createTextNode(" " + (status === "RECEIVED" ? "In Review" : status)));
+            } else if (status === "PENDING_HUMAN_APPROVAL") {
+                chip.classList.add("badge-PENDING_HUMAN_APPROVAL");
+                const dot = document.createElement("span");
+                dot.className = "badge-dot";
+                dot.textContent = "● ";
+                chip.appendChild(dot);
+                chip.appendChild(document.createTextNode("Needs review"));
+                const sr = document.createElement("span");
+                sr.className = "sr-only";
+                sr.textContent = "PENDING_HUMAN_APPROVAL";
+                chip.appendChild(sr);
+            } else if (status === "POLICY_REJECTED" || status === "REJECTED" || status === "HUMAN_REJECTED") {
+                chip.classList.add("badge-REJECTED");
+                chip.textContent = "✕ " + status;
+            } else if (status === "FAILED") {
+                chip.classList.add("badge-FAILED");
+                chip.textContent = "✕ FAILED";
+            } else if (status === "BLOCKED") {
+                chip.classList.add("badge-BLOCKED");
+                chip.textContent = "✕ BLOCKED";
+            } else if (status === "ONHOLD") {
+                chip.classList.add("badge-ONHOLD");
+                chip.textContent = "ONHOLD";
+            } else if (status === "ACTIVE" || status === "OPEN") {
+                chip.classList.add("badge-ACTIVE");
+                chip.textContent = status;
+            } else if (status === "QUARANTINED") {
+                chip.classList.add("badge-QUARANTINED");
+                chip.textContent = "✕ QUARANTINED";
+            } else {
+                chip.classList.add("badge-outline");
+                chip.textContent = status;
+            }
+            return chip;
+        }
+
         // Cache of current payouts for modal review
         let currentPayoutsMap = new Map();
         let payoutGridApi = null;
@@ -1131,19 +1307,7 @@
                 headerName: "Status", 
                 width: 230,
                 minWidth: 200,
-                cellRenderer: p => {
-                    const status = p.value || "UNKNOWN";
-                    if (status === "RECEIVED") {
-                        return `<span class="status-badge badge-RECEIVED"><span class="spinner-inline"></span> In Review</span>`;
-                    }
-                    if (status === "BLOCKED") {
-                        return `<span class="status-badge badge-BLOCKED">BLOCKED</span>`;
-                    }
-                    if (status === "ONHOLD") {
-                        return `<span class="status-badge badge-ONHOLD">ONHOLD</span>`;
-                    }
-                    return `<span class="status-badge badge-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
-                }
+                cellRenderer: p => getStatusBadgeHtml(p.value)
             },
             { 
                 field: "risk_score", 
@@ -1218,7 +1382,7 @@
                 field: "status", 
                 headerName: "Status", 
                 width: 140,
-                cellRenderer: p => `<span class="status-badge badge-${escapeHtml(p.value)}">${escapeHtml(p.value)}</span>`
+                cellRenderer: p => getStatusBadgeHtml(p.value)
             },
             { 
                 field: "hourly_cap", 
@@ -1306,7 +1470,7 @@
                 field: "status", 
                 headerName: "Status", 
                 width: 130,
-                cellRenderer: p => `<span class="status-badge badge-${escapeHtml(p.value)}">${escapeHtml(p.value)}</span>`
+                cellRenderer: p => getStatusBadgeHtml(p.value)
             }
         ];
 
@@ -1555,21 +1719,52 @@
                         const resElem = document.getElementById(resId);
                         if (!resElem) continue;
 
+                        resElem.textContent = "";
+                        resElem.appendChild(createStatusChipNode(p.status));
+
                         if (p.status === "PAID") {
-                            resElem.textContent = `[PAID] Settled successfully ($${parseFloat(p.amount || 0).toFixed(2)})`;
+                            const span = document.createElement("span");
+                            span.style.marginLeft = "6px";
+                            span.textContent = `Settled successfully ($${parseFloat(p.amount || 0).toFixed(2)})`;
+                            resElem.appendChild(span);
                         } else if (p.status === "PENDING_HUMAN_APPROVAL") {
+                            const span = document.createElement("span");
+                            span.style.marginLeft = "6px";
                             const isLlmFail = (p.decision_reasons || []).includes("LLM_UNAVAILABLE");
                             if (isLlmFail) {
-                                resElem.textContent = "[PENDING_HUMAN_APPROVAL] AI unavailable, so it escalated to you (fail-safe)";
+                                span.textContent = "AI unavailable (fail-safe)";
                             } else {
-                                resElem.textContent = `[PENDING_HUMAN_APPROVAL] Escalated: ${(p.decision_reasons || []).join(", ")} (Review in table)`;
+                                span.textContent = "Escalated for review";
                             }
+                            resElem.appendChild(span);
+                            (p.decision_reasons || []).forEach(r => {
+                                const rc = document.createElement("span");
+                                rc.className = "reason-chip";
+                                rc.style.marginLeft = "4px";
+                                rc.textContent = r;
+                                resElem.appendChild(rc);
+                            });
                         } else if (p.status === "POLICY_REJECTED") {
-                            resElem.textContent = `[POLICY_REJECTED] ${(p.decision_reasons || []).join(", ")}`;
+                            (p.decision_reasons || []).forEach(r => {
+                                const rc = document.createElement("span");
+                                rc.className = "reason-chip";
+                                rc.style.marginLeft = "4px";
+                                rc.textContent = r;
+                                resElem.appendChild(rc);
+                            });
                         } else if (p.status === "HUMAN_REJECTED") {
-                            resElem.textContent = "[HUMAN_REJECTED] Rejected by operator";
+                            const span = document.createElement("span");
+                            span.style.marginLeft = "6px";
+                            span.textContent = "Rejected by operator";
+                            resElem.appendChild(span);
                         } else if (p.status === "FAILED") {
-                            resElem.textContent = `[FAILED] ${(p.decision_reasons || []).join(", ")}`;
+                            (p.decision_reasons || []).forEach(r => {
+                                const rc = document.createElement("span");
+                                rc.className = "reason-chip";
+                                rc.style.marginLeft = "4px";
+                                rc.textContent = r;
+                                resElem.appendChild(rc);
+                            });
                         }
                     }
                 } else if (payoutRes.status === 401) {
@@ -1848,12 +2043,30 @@
                 const data = await resp.json();
                 activeScenarioPayouts[scenario] = data.payout_request_id;
 
+                res.textContent = "";
+                res.appendChild(createStatusChipNode(data.status));
+
                 if (data.status === "POLICY_REJECTED") {
-                    res.textContent = `[POLICY_REJECTED] ${(data.decision_reasons || []).join(", ")}`;
+                    (data.decision_reasons || []).forEach(r => {
+                        const rc = document.createElement("span");
+                        rc.className = "reason-chip";
+                        rc.style.marginLeft = "4px";
+                        rc.textContent = r;
+                        res.appendChild(rc);
+                    });
                 } else if (data.status === "RECEIVED") {
-                    res.textContent = "AI reviewing (free-tier model, up to ~30 s)...";
+                    const span = document.createElement("span");
+                    span.style.marginLeft = "6px";
+                    span.textContent = "AI reviewing (free-tier model, up to ~30 s)...";
+                    res.appendChild(span);
                 } else {
-                    res.textContent = `[${data.status}] ${(data.decision_reasons || []).join(", ")}`;
+                    (data.decision_reasons || []).forEach(r => {
+                        const rc = document.createElement("span");
+                        rc.className = "reason-chip";
+                        rc.style.marginLeft = "4px";
+                        rc.textContent = r;
+                        res.appendChild(rc);
+                    });
                 }
                 scheduleRefresh(true);
             } catch (err) {
