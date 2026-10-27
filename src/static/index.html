@@ -8,19 +8,35 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/styles/ag-grid.css" integrity="sha384-OecysGRPb6hK0zKkU0bEnPkCjMWZr/oL/ops++8ooImyjdWGmrh8dfZy9Zrl83j9" crossorigin="anonymous" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/styles/ag-theme-alpine.css" integrity="sha384-3blXdgSdMqVhgou73DTX5qLULk1Hwjsux2R8xxmKrAhG2NvA/VNZSnCqy4+FrvEG" crossorigin="anonymous" />
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.2.0/dist/ag-grid-community.min.js" integrity="sha384-b71KsiusGl92GIobhXmEjrCkVPuYc07YQ9Sr+HxXTo/d1RtsesC1cswvB9viTDef" crossorigin="anonymous"></script>
+    <!-- Google Fonts: Archivo & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62.5..100,400;62.5..100,500;62.5..100,600;62.5..100,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0f172a;
-            --bg-secondary: #1e293b;
-            --bg-tertiary: #111e33;
-            --border-color: #334155;
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent-blue: #0284c7;
-            --accent-cyan: #06b6d4;
+            --bg: #000000;
+            --surface: #0A0D14;
+            --surface-ink: #001C3F;
+            --line: #0D2B57;
+            --line-muted: #1F2430;
+            --text: #FFFFFF;
+            --text-muted: #C4C8D0;
+            --accent: #004BFF;
+            --accent-text: #4D8BFF;
+            --danger: #FF5A5A;
+
+            /* Legacy variable mappings for consistency */
+            --bg-primary: var(--bg);
+            --bg-secondary: var(--surface);
+            --bg-tertiary: var(--surface);
+            --border-color: var(--line);
+            --text-primary: var(--text);
+            --text-secondary: var(--text-muted);
+            --accent-blue: var(--accent);
+            --accent-cyan: var(--accent-text);
             --badge-green: #10b981;
             --badge-amber: #f59e0b;
-            --badge-red: #ef4444;
+            --badge-red: var(--danger);
             --badge-purple: #8b5cf6;
         }
 
@@ -28,34 +44,41 @@
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Archivo', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
         body {
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
+            background-color: var(--bg);
+            color: var(--text);
+            font-size: 15px;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            line-height: 1.5;
+        }
+
+        .cell-mono {
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace !important;
+            font-variant-numeric: tabular-nums;
         }
 
         /* Mock Mode Banner */
         #mockBanner {
             display: none;
-            background: linear-gradient(90deg, #b45309, #d97706);
-            color: #fff;
+            background: #b45309;
+            color: #ffffff;
             padding: 0.5rem 2rem;
-            font-size: 0.85rem;
+            font-size: 14px;
             font-weight: 700;
             letter-spacing: 0.5px;
             text-align: center;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--line);
             z-index: 100;
         }
 
         header {
-            background-color: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-color);
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--line);
             padding: 1rem 2rem;
             display: flex;
             align-items: center;
@@ -71,11 +94,12 @@
         }
 
         .logo-badge {
-            background: linear-gradient(135deg, #0284c7, #38bdf8);
-            color: white;
+            background: var(--surface-ink);
+            color: var(--text);
+            border: 1px solid var(--line);
             font-weight: 800;
             padding: 0.4rem 0.8rem;
-            border-radius: 6px;
+            border-radius: 2px;
             font-size: 1rem;
             letter-spacing: 0.5px;
         }
@@ -83,11 +107,12 @@
         .brand-title {
             font-size: 1.25rem;
             font-weight: 700;
+            color: var(--text);
         }
 
         .brand-subtitle {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+            font-size: 14px;
+            color: var(--text-muted);
         }
 
         .controls {
@@ -100,10 +125,10 @@
             display: inline-flex;
             align-items: center;
             gap: 0.4rem;
-            font-size: 0.75rem;
+            font-size: 14px;
             font-weight: 700;
             padding: 0.35rem 0.75rem;
-            border-radius: 20px;
+            border-radius: 2px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -134,46 +159,48 @@
         }
 
         .connection-pill.unauthorized {
-            background: rgba(239, 68, 68, 0.15);
-            color: #f87171;
-            border: 1px solid #ef4444;
+            background: rgba(255, 90, 90, 0.15);
+            color: var(--danger);
+            border: 1px solid var(--danger);
         }
         .connection-pill.unauthorized .dot {
             width: 8px;
             height: 8px;
-            background: #ef4444;
+            background: var(--danger);
             border-radius: 50%;
         }
 
         .connection-pill.disconnected {
             background: rgba(148, 163, 184, 0.15);
-            color: #94a3b8;
-            border: 1px solid #64748b;
+            color: var(--text-muted);
+            border: 1px solid var(--line-muted);
         }
         .connection-pill.disconnected .dot {
             width: 8px;
             height: 8px;
-            background: #64748b;
+            background: var(--text-muted);
             border-radius: 50%;
         }
 
         .input-token {
-            background-color: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            color: var(--text);
             padding: 0.5rem 0.8rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            border-radius: 2px;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
             width: 240px;
         }
 
         .btn {
-            background-color: var(--accent-blue);
-            color: white;
-            border: none;
+            background-color: var(--accent);
+            color: var(--text);
+            border: 1px solid var(--accent);
             padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            border-radius: 2px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -188,60 +215,60 @@
         }
 
         .btn-secondary {
-            background-color: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            color: var(--text-muted);
         }
 
         .btn-secondary:hover {
-            color: var(--text-primary);
-            border-color: var(--accent-cyan);
+            color: var(--text);
+            border-color: var(--accent-text);
         }
 
         .btn-action-review {
-            background-color: #0284c7;
-            color: white;
+            background-color: var(--accent);
+            color: var(--text);
             padding: 0.25rem 0.6rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
             margin-right: 4px;
         }
 
         .btn-action-cancel {
-            background-color: #6d28d9;
-            color: white;
+            background-color: var(--surface-ink);
+            color: var(--text-muted);
             padding: 0.25rem 0.6rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
             margin-right: 4px;
         }
 
         .btn-action-resolve {
-            background-color: #b91c1c;
-            color: white;
+            background-color: var(--surface-ink);
+            color: var(--danger);
             padding: 0.25rem 0.6rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
+            border: 1px solid var(--danger);
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
             margin-right: 4px;
         }
 
         .btn-action-release {
-            background-color: #059669;
-            color: white;
+            background-color: var(--surface-ink);
+            color: var(--accent-text);
             padding: 0.25rem 0.6rem;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
         }
 
@@ -260,9 +287,9 @@
         }
 
         .metric-card {
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             padding: 1rem;
             display: flex;
             flex-direction: column;
@@ -270,9 +297,9 @@
         }
 
         .metric-label {
-            font-size: 0.75rem;
+            font-size: 14px;
             text-transform: uppercase;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             font-weight: 600;
             letter-spacing: 0.5px;
         }
@@ -280,13 +307,15 @@
         .metric-value {
             font-size: 1.5rem;
             font-weight: 700;
-            color: #38bdf8;
+            color: var(--accent-text);
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
         }
 
         .grid-section {
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             padding: 1.25rem;
             display: flex;
             flex-direction: column;
@@ -300,9 +329,9 @@
         }
 
         .scenario-card {
-            background-color: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             padding: 1rem;
             display: flex;
             flex-direction: column;
@@ -318,25 +347,26 @@
         }
 
         .scenario-card-title {
-            font-size: 0.95rem;
+            font-size: 15px;
             font-weight: 700;
-            color: var(--text-primary);
+            color: var(--text);
         }
 
         .scenario-card-desc {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+            font-size: 14px;
+            color: var(--text-muted);
             line-height: 1.4;
         }
 
         .scenario-result {
-            font-size: 0.78rem;
-            font-family: monospace;
-            background: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             padding: 0.5rem 0.6rem;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             min-height: 2.2rem;
             display: flex;
             align-items: center;
@@ -352,61 +382,68 @@
         .grid-title {
             font-size: 1.1rem;
             font-weight: 700;
+            color: var(--text);
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
 
+        .ag-theme-alpine,
         .ag-theme-alpine-dark {
-            --ag-background-color: #1e293b;
-            --ag-header-background-color: #0f172a;
-            --ag-odd-row-background-color: #182234;
-            --ag-border-color: #334155;
-            --ag-row-hover-color: #273549;
-            --ag-selected-row-background-color: #334155;
-            --ag-foreground-color: #f8fafc;
-            border-radius: 6px;
+            --ag-background-color: var(--surface);
+            --ag-header-background-color: var(--surface);
+            --ag-odd-row-background-color: var(--surface);
+            --ag-row-border-color: var(--line);
+            --ag-border-color: var(--line);
+            --ag-row-hover-color: var(--surface-ink);
+            --ag-selected-row-background-color: var(--surface-ink);
+            --ag-foreground-color: var(--text);
+            --ag-secondary-foreground-color: var(--text-muted);
+            --ag-header-foreground-color: var(--text-muted);
+            --ag-font-family: 'Archivo', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --ag-font-size: 14px;
+            --ag-line-height: 38px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
             overflow: hidden;
-            font-size: 0.85rem;
         }
 
         .status-badge {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            padding: 2px 8px;
-            border-radius: 12px;
+            gap: 4px;
+            padding: 2px 6px;
+            border-radius: 2px;
             font-size: 0.75rem;
-            font-weight: 700;
-            text-align: center;
-            white-space: normal;
-            word-break: break-word;
-            line-height: 1.3;
+            font-weight: 600;
+            line-height: 1.2;
+            vertical-align: middle;
+            white-space: nowrap;
         }
 
         .badge-PAID { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
         .badge-PENDING_HUMAN_APPROVAL { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
-        .badge-POLICY_REJECTED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        .badge-HUMAN_REJECTED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        .badge-FAILED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-        .badge-SUBMITTED { background: rgba(2, 132, 199, 0.2); color: #38bdf8; border: 1px solid #0284c7; }
+        .badge-POLICY_REJECTED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+        .badge-HUMAN_REJECTED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+        .badge-FAILED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+        .badge-SUBMITTED { background: var(--surface-ink); color: var(--accent-text); border: 1px solid var(--accent); }
         .badge-APPROVED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
         .badge-UNCLAIMED { background: rgba(139, 92, 246, 0.2); color: #a78bfa; border: 1px solid #8b5cf6; }
-        .badge-CANCELED { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #94a3b8; }
-        .badge-OPEN { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
+        .badge-CANCELED { background: rgba(148, 163, 184, 0.2); color: var(--text-muted); border: 1px solid var(--line-muted); }
+        .badge-OPEN { background: var(--surface-ink); color: var(--accent-text); border: 1px solid var(--line); }
         .badge-ACTIVE { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
-        .badge-QUARANTINED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-weight: 800; }
+        .badge-QUARANTINED { background: rgba(255, 90, 90, 0.2); color: var(--danger); border: 1px solid var(--danger); font-weight: 800; }
 
         /* RECEIVED pulse & spinner */
         .badge-RECEIVED {
-            background: rgba(2, 132, 199, 0.2);
-            color: #38bdf8;
-            border: 1px dashed #0284c7;
+            background: var(--surface-ink);
+            color: var(--accent-text);
+            border: 1px dashed var(--accent);
         }
         .spinner-inline {
             width: 8px;
             height: 8px;
-            border: 2px solid #38bdf8;
+            border: 2px solid var(--accent-text);
             border-top-color: transparent;
             border-radius: 50%;
             display: inline-block;
@@ -414,10 +451,9 @@
 
         /* BLOCKED and ONHOLD distinct styling */
         .badge-BLOCKED {
-            background: rgba(220, 38, 38, 0.25);
-            color: #fca5a5;
-            border: 1px solid #ef4444;
-            box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+            background: rgba(255, 90, 90, 0.25);
+            color: var(--danger);
+            border: 1px solid var(--danger);
         }
         .badge-ONHOLD {
             background: rgba(217, 119, 6, 0.25);
@@ -428,12 +464,12 @@
         .risk-badge {
             font-weight: 700;
             padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.75rem;
+            border-radius: 2px;
+            font-size: 14px;
         }
         .risk-low { background: rgba(16, 185, 129, 0.15); color: #34d399; }
         .risk-med { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-        .risk-high { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .risk-high { background: rgba(255, 90, 90, 0.15); color: var(--danger); }
 
         .reasons-flex-wrap {
             display: flex;
@@ -444,12 +480,14 @@
 
         .reason-chip {
             display: inline-block;
-            background: #334155;
-            color: #e2e8f0;
+            background: var(--surface-ink);
+            color: var(--text-muted);
+            border: 1px solid var(--line);
             padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-family: monospace;
+            border-radius: 2px;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }
 
@@ -472,9 +510,9 @@
         }
 
         .modal-card {
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 10px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             width: 90%;
             max-width: 650px;
             max-height: 85vh;
@@ -483,38 +521,38 @@
             flex-direction: column;
             gap: 1.25rem;
             padding: 1.75rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
         }
 
         .modal-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid #334155;
+            border-bottom: 1px solid var(--line);
             padding-bottom: 0.75rem;
         }
 
         .modal-title {
             font-size: 1.2rem;
             font-weight: 700;
-            color: #f8fafc;
+            color: var(--text);
         }
 
         .modal-body {
             display: flex;
             flex-direction: column;
             gap: 1rem;
-            font-size: 0.9rem;
+            font-size: 14px;
         }
 
         .meta-row {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 0.75rem;
-            background: #0f172a;
+            background: var(--bg);
             padding: 0.75rem 1rem;
-            border-radius: 6px;
-            border: 1px solid #334155;
+            border-radius: 2px;
+            border: 1px solid var(--line);
         }
         .meta-item {
             display: flex;
@@ -522,36 +560,39 @@
             gap: 2px;
         }
         .meta-label {
-            font-size: 0.75rem;
-            color: #94a3b8;
+            font-size: 14px;
+            color: var(--text-muted);
             text-transform: uppercase;
         }
         .meta-value {
             font-weight: 600;
-            color: #f8fafc;
+            color: var(--text);
             word-break: break-all;
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
         }
 
         .review-section-title {
-            font-size: 0.85rem;
+            font-size: 14px;
             font-weight: 700;
-            color: #94a3b8;
+            color: var(--text-muted);
             text-transform: uppercase;
             margin-bottom: 0.25rem;
         }
 
         .box-pre {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 6px;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 2px;
             padding: 0.75rem;
-            font-family: monospace;
-            font-size: 0.82rem;
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-variant-numeric: tabular-nums;
+            font-size: 14px;
             white-space: pre-wrap;
             word-break: break-word;
             max-height: 160px;
             overflow-y: auto;
-            color: #e2e8f0;
+            color: var(--text-muted);
         }
 
         .modal-actions {
@@ -559,57 +600,61 @@
             align-items: center;
             justify-content: flex-end;
             gap: 0.75rem;
-            border-top: 1px solid #334155;
+            border-top: 1px solid var(--line);
             padding-top: 1rem;
         }
 
         .btn-confirm-approve {
-            background-color: #059669;
-            color: white;
+            background-color: var(--accent);
+            color: var(--text);
             padding: 0.5rem 1.2rem;
-            border: none;
-            border-radius: 6px;
+            border: 1px solid var(--accent);
+            border-radius: 2px;
             font-weight: 700;
             cursor: pointer;
+            font-size: 14px;
         }
-        .btn-confirm-approve:hover:not(:disabled) { background-color: #047857; }
+        .btn-confirm-approve:hover:not(:disabled) { opacity: 0.9; }
         .btn-confirm-approve:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .btn-confirm-reject {
-            background-color: #dc2626;
-            color: white;
+            background-color: transparent;
+            color: var(--danger);
             padding: 0.5rem 1.2rem;
-            border: none;
-            border-radius: 6px;
+            border: 1px solid var(--danger);
+            border-radius: 2px;
             font-weight: 700;
             cursor: pointer;
+            font-size: 14px;
         }
-        .btn-confirm-reject:hover:not(:disabled) { background-color: #b91c1c; }
+        .btn-confirm-reject:hover:not(:disabled) { background-color: rgba(255, 90, 90, 0.1); }
         .btn-confirm-reject:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .btn-close-modal {
-            background-color: #334155;
-            color: #cbd5e1;
+            background-color: var(--surface-ink);
+            color: var(--text-muted);
             padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 6px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
             font-weight: 600;
             cursor: pointer;
+            font-size: 14px;
         }
-        .btn-close-modal:hover { background-color: #475569; }
+        .btn-close-modal:hover { color: var(--text); border-color: var(--accent-text); }
 
         #toast {
             position: fixed;
             bottom: 2rem;
             right: 2rem;
-            background: #0284c7;
-            color: white;
+            background: var(--surface-ink);
+            border: 1px solid var(--line);
+            color: var(--text);
             padding: 0.75rem 1.25rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
+            border-radius: 2px;
+            font-size: 14px;
             font-weight: 600;
             display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.6);
             z-index: 9999;
         }
     </style>
@@ -872,6 +917,7 @@
                 field: "payout_request_id", 
                 headerName: "Request ID", 
                 width: 130,
+                cellClass: "cell-mono",
                 cellRenderer: p => {
                     const safeVal = escapeHtml(p.value);
                     const shortVal = escapeHtml(p.value ? p.value.substring(0, 10) + '...' : '');
@@ -882,18 +928,21 @@
                 field: "task_id", 
                 headerName: "Task ID", 
                 width: 140,
+                cellClass: "cell-mono",
                 cellRenderer: p => escapeHtml(p.value)
             },
             { 
                 field: "agent_id", 
                 headerName: "Agent", 
                 width: 130,
+                cellClass: "cell-mono",
                 cellRenderer: p => escapeHtml(p.value)
             },
             { 
                 field: "amount", 
                 headerName: "Amount", 
                 width: 100,
+                cellClass: "cell-mono",
                 cellRenderer: p => `<strong>$${parseFloat(p.value || 0).toFixed(2)}</strong>`
             },
             { 
@@ -975,6 +1024,7 @@
                 field: "agent_id", 
                 headerName: "Agent ID", 
                 width: 160,
+                cellClass: "cell-mono",
                 cellRenderer: p => escapeHtml(p.value)
             },
             { 
@@ -993,17 +1043,19 @@
                 field: "hourly_cap", 
                 headerName: "Hourly Cap", 
                 width: 120,
+                cellClass: "cell-mono",
                 cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
             },
             { 
                 field: "current_burn", 
                 headerName: "Hourly Burn (Current)", 
                 width: 170,
+                cellClass: "cell-mono",
                 cellRenderer: p => {
                     const burn = parseFloat(p.value || 0);
                     const cap = parseFloat(p.data.hourly_cap || 200);
                     const pct = Math.min(100, (burn / cap) * 100);
-                    const color = pct >= 90 ? "#ef4444" : (pct >= 60 ? "#f59e0b" : "#34d399");
+                    const color = pct >= 90 ? "#ff5a5a" : (pct >= 60 ? "#f59e0b" : "#34d399");
                     return `<strong style="color: ${color}">$${burn.toFixed(2)}</strong> / $${cap.toFixed(2)}`;
                 }
             },
@@ -1011,12 +1063,14 @@
                 field: "current_reserved", 
                 headerName: "Reserved", 
                 width: 110,
+                cellClass: "cell-mono",
                 cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
             },
             { 
                 field: "current_spent", 
                 headerName: "Spent", 
                 width: 110,
+                cellClass: "cell-mono",
                 cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
             },
             {
@@ -1037,6 +1091,7 @@
                 field: "task_id", 
                 headerName: "Task ID", 
                 width: 170,
+                cellClass: "cell-mono",
                 cellRenderer: p => escapeHtml(p.value)
             },
             { 
@@ -1049,6 +1104,7 @@
                 field: "budget", 
                 headerName: "Budget", 
                 width: 110,
+                cellClass: "cell-mono",
                 cellRenderer: p => `$${parseFloat(p.value || 0).toFixed(2)}`
             },
             { 
@@ -1061,6 +1117,7 @@
                 field: "assigned_agent_id", 
                 headerName: "Assigned Agent", 
                 width: 160,
+                cellClass: "cell-mono",
                 cellRenderer: p => escapeHtml(p.value)
             },
             { 
@@ -1541,7 +1598,8 @@
 
         async function releaseAgent(agentId) {
             try {
-                const res = await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}/release`, {
+                const encodedId = encodeURIComponent(agentId).replace(/'/g, "%27");
+                const res = await fetch(`/api/v1/agents/${encodedId}/release`, {
                     method: "POST",
                     headers: getAuthHeaders()
                 });
