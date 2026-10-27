@@ -647,7 +647,7 @@ class DemoTaskCreate(BaseModel):
 
 class DemoTaskOut(BaseModel):
     task_id: str
-    budget: float
+    budget: str
     deadline: str
 
 

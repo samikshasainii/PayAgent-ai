@@ -293,6 +293,56 @@
             gap: 1rem;
         }
 
+        .simulator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1rem;
+        }
+
+        .scenario-card {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .scenario-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .scenario-card-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .scenario-card-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .scenario-result {
+            font-size: 0.78rem;
+            font-family: monospace;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.5rem 0.6rem;
+            color: var(--text-secondary);
+            min-height: 2.2rem;
+            display: flex;
+            align-items: center;
+            word-break: break-word;
+        }
+
         .grid-header {
             display: flex;
             align-items: center;
@@ -612,6 +662,87 @@
             <div class="metric-card">
                 <span class="metric-label">Quarantined Agents</span>
                 <span class="metric-value" id="metricQuarantined" style="color: #f87171;">0</span>
+            </div>
+        </div>
+
+        <!-- 1-Click Simulator & Task Dispatcher -->
+        <div id="simulatorSection" class="grid-section">
+            <div class="grid-header">
+                <div class="grid-title">🎮 1-Click Agent Simulator & Task Dispatcher</div>
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">Test guardian defenses live or assign new tasks to the swarm</span>
+            </div>
+            <div class="simulator-grid">
+                <!-- Card 1: Honest Agent -->
+                <div class="scenario-card">
+                    <div>
+                        <div class="scenario-card-header">
+                            <span class="scenario-card-title">1. Honest Agent</span>
+                            <span class="status-badge badge-PAID">Auto-Pay</span>
+                        </div>
+                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
+                            Submits $25 claim against $25 budget. Passes Gate 1 validation and Gate 2 LLM evaluation, auto-settling via PayPal.
+                        </p>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button class="btn" id="btnScenarioHappy" style="width: 100%; justify-content: center;">▶ Run Honest Agent</button>
+                        <div id="resScenarioHappy" class="scenario-result">Ready</div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Rogue Agent -->
+                <div class="scenario-card">
+                    <div>
+                        <div class="scenario-card-header">
+                            <span class="scenario-card-title">2. Rogue Agent</span>
+                            <span class="status-badge badge-POLICY_REJECTED">Gate 1 Block</span>
+                        </div>
+                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
+                            Attempts $150 over-claim against $120 budget. Instant rejection at Gate 1 (OVER_TASK_BUDGET) with zero LLM token cost.
+                        </p>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button class="btn" id="btnScenarioRogue" style="width: 100%; justify-content: center; background-color: #b91c1c;">▶ Run Rogue Agent</button>
+                        <div id="resScenarioRogue" class="scenario-result">Ready</div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Big-Ticket Claim -->
+                <div class="scenario-card">
+                    <div>
+                        <div class="scenario-card-header">
+                            <span class="scenario-card-title">3. Big-Ticket Claim</span>
+                            <span class="status-badge badge-PENDING_HUMAN_APPROVAL">HITL Review</span>
+                        </div>
+                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
+                            Valid claim for $120 exceeds $50 autonomous threshold. Safely escalates to Human-in-the-Loop review in table below.
+                        </p>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <button class="btn" id="btnScenarioBigticket" style="width: 100%; justify-content: center; background-color: #d97706;">▶ Run Big-Ticket</button>
+                        <div id="resScenarioBigticket" class="scenario-result">Ready</div>
+                    </div>
+                </div>
+
+                <!-- Card 4: Give Agent a Task -->
+                <div class="scenario-card">
+                    <div>
+                        <div class="scenario-card-header">
+                            <span class="scenario-card-title">4. Give Agent a Task</span>
+                            <span class="status-badge badge-OPEN">New Task</span>
+                        </div>
+                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
+                            Creates a fresh $25 demo task contract assigned to a swarm agent. The agent detects and executes it via MCP.
+                        </p>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <select id="selectTaskAgent" class="input-token" style="width: 100%;">
+                            <option value="agent-code-reviewer-01">agent-code-reviewer-01</option>
+                            <option value="agent-data-labeler-02">agent-data-labeler-02</option>
+                        </select>
+                        <button class="btn" id="btnCreateTask" style="width: 100%; justify-content: center; background-color: #4f46e5;">+ Create Demo Task</button>
+                        <div id="resCreateTask" class="scenario-result">Ready</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1170,6 +1301,38 @@
                     document.getElementById("metricTotalVol").textContent = `$${totalVol.toFixed(2)}`;
                     document.getElementById("metricPending").textContent = pendingCount;
                     document.getElementById("metricPaid").textContent = paidCount;
+
+                    // Update tracked simulator scenarios
+                    const scenarioCardMap = {
+                        happy: "resScenarioHappy",
+                        rogue: "resScenarioRogue",
+                        bigticket: "resScenarioBigticket"
+                    };
+                    for (const [sc, resId] of Object.entries(scenarioCardMap)) {
+                        const reqId = activeScenarioPayouts[sc];
+                        if (!reqId) continue;
+                        const p = currentPayoutsMap.get(reqId);
+                        if (!p) continue;
+                        const resElem = document.getElementById(resId);
+                        if (!resElem) continue;
+
+                        if (p.status === "PAID") {
+                            resElem.textContent = `[PAID] Settled successfully ($${parseFloat(p.amount || 0).toFixed(2)})`;
+                        } else if (p.status === "PENDING_HUMAN_APPROVAL") {
+                            const isLlmFail = (p.decision_reasons || []).includes("LLM_UNAVAILABLE");
+                            if (isLlmFail) {
+                                resElem.textContent = "[PENDING_HUMAN_APPROVAL] AI unavailable, so it escalated to you (fail-safe)";
+                            } else {
+                                resElem.textContent = `[PENDING_HUMAN_APPROVAL] Escalated: ${(p.decision_reasons || []).join(", ")} (Review in table)`;
+                            }
+                        } else if (p.status === "POLICY_REJECTED") {
+                            resElem.textContent = `[POLICY_REJECTED] ${(p.decision_reasons || []).join(", ")}`;
+                        } else if (p.status === "HUMAN_REJECTED") {
+                            resElem.textContent = "[HUMAN_REJECTED] Rejected by operator";
+                        } else if (p.status === "FAILED") {
+                            resElem.textContent = `[FAILED] ${(p.decision_reasons || []).join(", ")}`;
+                        }
+                    }
                 } else if (payoutRes.status === 401) {
                     stopPolling();
                     if (sseSource) { sseSource.close(); sseSource = null; }
@@ -1394,6 +1557,131 @@
             }
         }
 
+        // --- 1-Click Simulator Actions ---
+        const activeScenarioPayouts = { happy: null, rogue: null, bigticket: null };
+
+        async function runDemoScenario(scenario, btnId, resId) {
+            const btn = document.getElementById(btnId);
+            const res = document.getElementById(resId);
+            if (!getAuthToken()) {
+                res.textContent = "Operator token required";
+                showToast("Please enter an Operator Token first", true);
+                return;
+            }
+
+            btn.disabled = true;
+            res.textContent = "Triggering scenario...";
+
+            try {
+                const resp = await fetch(`/api/v1/demo/scenarios/${encodeURIComponent(scenario)}`, {
+                    method: "POST",
+                    headers: getAuthHeaders()
+                });
+
+                if (resp.status === 429) {
+                    const err = await resp.json().catch(() => ({}));
+                    const retryAfter = err.retry_after || resp.headers.get("Retry-After") || "a few";
+                    res.textContent = `Demo cooling down, try again in ${retryAfter} s`;
+                    return;
+                }
+                if (resp.status === 404) {
+                    res.textContent = "Simulator is switched off on this server";
+                    return;
+                }
+                if (resp.status === 503) {
+                    res.textContent = "Simulator not configured";
+                    return;
+                }
+                if (resp.status === 401) {
+                    stopPolling();
+                    if (sseSource) { sseSource.close(); sseSource = null; }
+                    updateConnectionBadge("unauthorized");
+                    res.textContent = "Unauthorized: check operator token";
+                    return;
+                }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    res.textContent = `Error (${resp.status}): ${err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Request failed"}`;
+                    return;
+                }
+
+                const data = await resp.json();
+                activeScenarioPayouts[scenario] = data.payout_request_id;
+
+                if (data.status === "POLICY_REJECTED") {
+                    res.textContent = `[POLICY_REJECTED] ${(data.decision_reasons || []).join(", ")}`;
+                } else if (data.status === "RECEIVED") {
+                    res.textContent = "AI reviewing (free-tier model, up to ~30 s)...";
+                } else {
+                    res.textContent = `[${data.status}] ${(data.decision_reasons || []).join(", ")}`;
+                }
+                scheduleRefresh(true);
+            } catch (err) {
+                res.textContent = `Network error: ${err.message || "Failed to reach server"}`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function handleCreateDemoTask() {
+            const btn = document.getElementById("btnCreateTask");
+            const res = document.getElementById("resCreateTask");
+            const agentSelect = document.getElementById("selectTaskAgent");
+            const agentId = agentSelect.value;
+
+            if (!getAuthToken()) {
+                res.textContent = "Operator token required";
+                showToast("Please enter an Operator Token first", true);
+                return;
+            }
+
+            btn.disabled = true;
+            res.textContent = "Creating task...";
+
+            try {
+                const resp = await fetch("/api/v1/demo/tasks", {
+                    method: "POST",
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ agent_id: agentId })
+                });
+
+                if (resp.status === 429) {
+                    const err = await resp.json().catch(() => ({}));
+                    const retryAfter = err.retry_after || resp.headers.get("Retry-After") || "a few";
+                    res.textContent = `Demo cooling down, try again in ${retryAfter} s`;
+                    return;
+                }
+                if (resp.status === 404) {
+                    res.textContent = "Simulator is switched off on this server";
+                    return;
+                }
+                if (resp.status === 503) {
+                    res.textContent = "Simulator not configured";
+                    return;
+                }
+                if (resp.status === 401) {
+                    stopPolling();
+                    if (sseSource) { sseSource.close(); sseSource = null; }
+                    updateConnectionBadge("unauthorized");
+                    res.textContent = "Unauthorized: check operator token";
+                    return;
+                }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    res.textContent = `Error (${resp.status}): ${err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Creation failed"}`;
+                    return;
+                }
+
+                const data = await resp.json();
+                res.textContent = `Created task ${data.task_id} ($${data.budget}), now visible to the agent via MCP`;
+                scheduleRefresh(true);
+            } catch (err) {
+                res.textContent = `Network error: ${err.message || "Failed to reach server"}`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         // --- Initialization & Delegated Event Listeners ---
         document.addEventListener("DOMContentLoaded", () => {
             // Restore token ONLY from sessionStorage (never localStorage)
@@ -1413,6 +1701,12 @@
             document.getElementById("btnRefreshManual").addEventListener("click", () => scheduleRefresh(true));
             document.getElementById("btnModalCloseHeader").addEventListener("click", closeReviewModal);
             document.getElementById("btnModalCancel").addEventListener("click", closeReviewModal);
+
+            // 1-Click Simulator Event Listeners
+            document.getElementById("btnScenarioHappy").addEventListener("click", () => runDemoScenario("happy", "btnScenarioHappy", "resScenarioHappy"));
+            document.getElementById("btnScenarioRogue").addEventListener("click", () => runDemoScenario("rogue", "btnScenarioRogue", "resScenarioRogue"));
+            document.getElementById("btnScenarioBigticket").addEventListener("click", () => runDemoScenario("bigticket", "btnScenarioBigticket", "resScenarioBigticket"));
+            document.getElementById("btnCreateTask").addEventListener("click", handleCreateDemoTask);
 
             // Delegated click listeners on grids (removes all inline onclick data interpolation)
             document.getElementById("payoutGrid").addEventListener("click", (e) => {

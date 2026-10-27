@@ -210,7 +210,7 @@ async def test_bigticket_scenario_reaches_pending_human_approval(monkeypatch):
         # Operator approves the payout
         approve_res = await client.post(f"/api/v1/payout-requests/{payout_id}/approve", headers=auth_headers)
         assert approve_res.status_code == 200
-        assert approve_res.json()["status"] in ("APPROVED", "PAID")
+        assert approve_res.json()["status"] == "PAID"
 
 
 @pytest.mark.asyncio
@@ -230,7 +230,7 @@ async def test_demo_tasks_eligible_agents_and_rejections(monkeypatch):
         assert res1.status_code == 200
         data1 = res1.json()
         assert data1["task_id"].startswith("demo-task-")
-        assert data1["budget"] == 25.0
+        assert data1["budget"] == "25.00"
         assert "deadline" in data1
 
         simulator_limiter.reset()
@@ -240,7 +240,7 @@ async def test_demo_tasks_eligible_agents_and_rejections(monkeypatch):
         assert res2.status_code == 200
         data2 = res2.json()
         assert data2["task_id"].startswith("demo-task-")
-        assert data2["budget"] == 25.0
+        assert data2["budget"] == "25.00"
 
         simulator_limiter.reset()
 
