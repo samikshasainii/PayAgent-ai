@@ -79,46 +79,146 @@
         header {
             background-color: var(--surface);
             border-bottom: 1px solid var(--line);
-            padding: 1rem 2rem;
+            padding: 1.25rem 2rem;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: space-between;
             flex-wrap: wrap;
-            gap: 1rem;
+            gap: 1.25rem;
+            max-width: 100vw;
+            box-sizing: border-box;
         }
 
         .brand {
             display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .logo-badge {
-            background: var(--surface-ink);
-            color: var(--text);
-            border: 1px solid var(--line);
-            font-weight: 800;
-            padding: 0.4rem 0.8rem;
-            border-radius: 2px;
-            font-size: 1rem;
-            letter-spacing: 0.5px;
+            flex-direction: column;
+            gap: 0.35rem;
         }
 
         .brand-title {
-            font-size: 1.25rem;
-            font-weight: 700;
+            font-family: 'Archivo', system-ui, sans-serif;
+            font-stretch: 75%;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 1.75rem;
+            line-height: 1.1;
             color: var(--text);
         }
 
-        .brand-subtitle {
+        .brand-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .brand-tagline {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text);
+            line-height: 1.3;
+        }
+
+        .brand-subline {
             font-size: 14px;
             color: var(--text-muted);
+            line-height: 1.3;
+        }
+
+        .brand-pillars {
+            font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            color: var(--accent-text);
+            margin-top: 0.2rem;
         }
 
         .controls {
             display: flex;
-            align-items: center;
+            flex-direction: column;
             gap: 0.75rem;
+            align-items: flex-end;
+        }
+
+        .controls-buttons {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        /* How this works strip */
+        .how-it-works {
+            background-color: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            margin: 1.25rem 2rem 0 2rem;
+            overflow: hidden;
+        }
+        .how-it-works-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--surface-ink);
+            cursor: pointer;
+            user-select: none;
+            border-bottom: 1px solid var(--line);
+        }
+        .how-it-works-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text);
+        }
+        .how-it-works-icon {
+            font-size: 13px;
+            color: var(--accent-text);
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+        }
+        .how-it-works-body {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .how-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1rem;
+        }
+        .how-step {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
+        .how-step-num {
+            background: var(--surface-ink);
+            color: var(--accent-text);
+            border: 1px solid var(--line);
+            width: 24px;
+            height: 24px;
+            border-radius: 2px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+            flex-shrink: 0;
+        }
+        .how-step-text {
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .how-credential-note {
+            font-size: 13px;
+            color: var(--text);
+            font-weight: 600;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--line-muted);
         }
 
         .connection-pill {
@@ -272,12 +372,21 @@
             cursor: pointer;
         }
 
+        /* Prevent page-level horizontal overflow */
+        html, body {
+            max-width: 100vw;
+            overflow-x: hidden;
+        }
+
         main {
             padding: 1.5rem 2rem;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
             flex: 1;
+            max-width: 100vw;
+            overflow-x: hidden;
+            box-sizing: border-box;
         }
 
         .metrics-bar {
@@ -320,6 +429,9 @@
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            max-width: 100%;
+            overflow-x: hidden;
+            box-sizing: border-box;
         }
 
         .simulator-grid {
@@ -352,10 +464,48 @@
             color: var(--text);
         }
 
+        .scenario-card-question {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            margin-top: 0.4rem;
+            margin-bottom: 0.25rem;
+            line-height: 1.35;
+        }
+
         .scenario-card-desc {
             font-size: 14px;
             color: var(--text-muted);
             line-height: 1.4;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .controls {
+                align-items: stretch;
+                width: 100%;
+            }
+            .input-token {
+                width: 100% !important;
+            }
+            .controls-buttons {
+                display: flex;
+                width: 100%;
+            }
+            .controls-buttons .btn {
+                flex: 1;
+                justify-content: center;
+            }
+            main {
+                padding: 1rem;
+            }
+            .how-it-works {
+                margin: 1rem 1rem 0 1rem;
+            }
         }
 
         .scenario-result {
@@ -662,15 +812,16 @@
 <body>
     <!-- Permanent Mock Mode Banner -->
     <div id="mockBanner">
-        ⚠️ MOCK MODE ACTIVE: <span id="mockBannerDetails">Mock PayPal: ON | Mock LLM: ON</span> (Testing Mode — No Real Funds Moved)
+        MOCK MODE ACTIVE: <span id="mockBannerDetails">Mock PayPal: ON | Mock LLM: ON</span> (Testing Mode — No Real Funds Moved)
     </div>
 
     <header>
         <div class="brand">
-            <span class="logo-badge">PayAgent AI</span>
-            <div>
-                <div class="brand-title">Financial Guardian & Swarm Payout Console</div>
-                <div class="brand-subtitle">Powered by AG Grid, PayPal Sandbox Payouts v1 & Real-time SSE</div>
+            <h1 class="brand-title">PAYAGENT</h1>
+            <div class="brand-copy">
+                <div class="brand-tagline">Guardrails between AI agents and your PayPal balance.</div>
+                <div class="brand-subline">The AI is a skeptic, not a signer: it can stop a payment, never approve one.</div>
+                <div class="brand-pillars">RULES // AI REVIEW // HUMAN WHEN IT MATTERS</div>
             </div>
         </div>
         <div class="controls">
@@ -680,10 +831,37 @@
                 <span id="connectionText">Disconnected</span>
             </span>
             <input type="password" id="operatorToken" class="input-token" placeholder="Operator Token" autocomplete="off" />
-            <button class="btn btn-secondary" id="btnTriggerPoller">🔄 Reconcile Poller</button>
-            <button class="btn" id="btnRefreshManual">⚡ Refresh</button>
+            <div class="controls-buttons">
+                <button class="btn btn-secondary" id="btnTriggerPoller">Reconcile Poller</button>
+                <button class="btn" id="btnRefreshManual">Refresh</button>
+            </div>
         </div>
     </header>
+
+    <!-- How this works Strip -->
+    <section id="howThisWorksSection" class="how-it-works">
+        <div class="how-it-works-header" id="howItWorksToggle" role="button" tabindex="0" aria-expanded="true">
+            <span class="how-it-works-title">How this works</span>
+            <span id="howItWorksIcon" class="how-it-works-icon">Collapse ▴</span>
+        </div>
+        <div id="howItWorksContent" class="how-it-works-body">
+            <div class="how-steps">
+                <div class="how-step">
+                    <span class="how-step-num">1</span>
+                    <span class="how-step-text">Rules check every claim first (budget, deadline, recipient, replay, spend cap).</span>
+                </div>
+                <div class="how-step">
+                    <span class="how-step-num">2</span>
+                    <span class="how-step-text">An AI reviewer reads the proof. It can only flag or escalate, never approve.</span>
+                </div>
+                <div class="how-step">
+                    <span class="how-step-num">3</span>
+                    <span class="how-step-text">Big or doubtful payouts wait for a human. Then PayPal Payouts pays the sandbox recipient.</span>
+                </div>
+            </div>
+            <div class="how-credential-note">Agents never hold PayPal credentials.</div>
+        </div>
+    </section>
 
     <main>
         <!-- Metrics Cards -->
@@ -693,7 +871,7 @@
                 <span class="metric-value" id="metricTotalVol">$0.00</span>
             </div>
             <div class="metric-card">
-                <span class="metric-label">Pending HITL Approvals</span>
+                <span class="metric-label">Waiting for human review</span>
                 <span class="metric-value" id="metricPending" style="color: #fbbf24;">0</span>
             </div>
             <div class="metric-card">
@@ -706,15 +884,15 @@
             </div>
             <div class="metric-card">
                 <span class="metric-label">Quarantined Agents</span>
-                <span class="metric-value" id="metricQuarantined" style="color: #f87171;">0</span>
+                <span class="metric-value" id="metricQuarantined" style="color: var(--danger);">0</span>
             </div>
         </div>
 
         <!-- 1-Click Simulator & Task Dispatcher -->
         <div id="simulatorSection" class="grid-section">
             <div class="grid-header">
-                <div class="grid-title">🎮 1-Click Agent Simulator & Task Dispatcher</div>
-                <span style="font-size: 0.8rem; color: var(--text-secondary);">Test guardian defenses live or assign new tasks to the swarm</span>
+                <div class="grid-title">1-Click Agent Simulator & Task Dispatcher</div>
+                <span style="font-size: 14px; color: var(--text-muted);">Test guardian defenses live or assign new tasks to the swarm</span>
             </div>
             <div class="simulator-grid">
                 <!-- Card 1: Honest Agent -->
@@ -722,14 +900,15 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">1. Honest Agent</span>
-                            <span class="status-badge badge-PAID">Auto-Pay</span>
+                            <span class="status-badge badge-PAID">Paid</span>
                         </div>
-                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
-                            Submits $25 claim against $25 budget. Passes Gate 1 validation and Gate 2 LLM evaluation, auto-settling via PayPal.
+                        <p class="scenario-card-question">What if the agent did the work honestly?</p>
+                        <p class="scenario-card-desc">
+                            Submits $25 claim against $25 budget. Passes rules check and AI review, auto-settling via PayPal.
                         </p>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <button class="btn" id="btnScenarioHappy" style="width: 100%; justify-content: center;">▶ Run Honest Agent</button>
+                        <button class="btn" id="btnScenarioHappy" style="width: 100%; justify-content: center;">Run Honest Agent</button>
                         <div id="resScenarioHappy" class="scenario-result">Ready</div>
                     </div>
                 </div>
@@ -739,14 +918,15 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">2. Rogue Agent</span>
-                            <span class="status-badge badge-POLICY_REJECTED">Gate 1 Block</span>
+                            <span class="status-badge badge-POLICY_REJECTED">Blocked by rules · OVER_TASK_BUDGET</span>
                         </div>
-                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
-                            Attempts $150 over-claim against $120 budget. Instant rejection at Gate 1 (OVER_TASK_BUDGET) with zero LLM token cost.
+                        <p class="scenario-card-question">What if the agent asks for more than the task is worth?</p>
+                        <p class="scenario-card-desc">
+                            Attempts $150 over-claim against $120 budget. Instant rejection by rules check (OVER_TASK_BUDGET) with zero AI review token cost.
                         </p>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <button class="btn" id="btnScenarioRogue" style="width: 100%; justify-content: center; background-color: #b91c1c;">▶ Run Rogue Agent</button>
+                        <button class="btn" id="btnScenarioRogue" style="width: 100%; justify-content: center; background-color: var(--danger); border-color: var(--danger);">Run Rogue Agent</button>
                         <div id="resScenarioRogue" class="scenario-result">Ready</div>
                     </div>
                 </div>
@@ -756,14 +936,15 @@
                     <div>
                         <div class="scenario-card-header">
                             <span class="scenario-card-title">3. Big-Ticket Claim</span>
-                            <span class="status-badge badge-PENDING_HUMAN_APPROVAL">HITL Review</span>
+                            <span class="status-badge badge-PENDING_HUMAN_APPROVAL">Needs your approval → Paid</span>
                         </div>
-                        <p class="scenario-card-desc" style="margin-top: 0.5rem;">
-                            Valid claim for $120 exceeds $50 autonomous threshold. Safely escalates to Human-in-the-Loop review in table below.
+                        <p class="scenario-card-question">What if the payout is big enough that a human should decide?</p>
+                        <p class="scenario-card-desc">
+                            Valid claim for $120 exceeds $50 autonomous threshold. Safely escalates to human review in table below.
                         </p>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                        <button class="btn" id="btnScenarioBigticket" style="width: 100%; justify-content: center; background-color: #d97706;">▶ Run Big-Ticket</button>
+                        <button class="btn" id="btnScenarioBigticket" style="width: 100%; justify-content: center; background-color: #d97706; border-color: #d97706;">Run Big-Ticket</button>
                         <div id="resScenarioBigticket" class="scenario-result">Ready</div>
                     </div>
                 </div>
@@ -784,7 +965,7 @@
                             <option value="agent-code-reviewer-01">agent-code-reviewer-01</option>
                             <option value="agent-data-labeler-02">agent-data-labeler-02</option>
                         </select>
-                        <button class="btn" id="btnCreateTask" style="width: 100%; justify-content: center; background-color: #4f46e5;">+ Create Demo Task</button>
+                        <button class="btn" id="btnCreateTask" style="width: 100%; justify-content: center;">Create Demo Task</button>
                         <div id="resCreateTask" class="scenario-result">Ready</div>
                     </div>
                 </div>
@@ -794,8 +975,8 @@
         <!-- Section 1: Payout Requests -->
         <div class="grid-section">
             <div class="grid-header">
-                <div class="grid-title">🛡️ Guardian Payout Requests & Audit Log</div>
-                <span style="font-size: 0.8rem; color: var(--text-secondary);">Real-time stream updates via Server-Sent Events</span>
+                <div class="grid-title">Guardian Payout Requests & Audit Log</div>
+                <span style="font-size: 14px; color: var(--text-muted);">Real-time stream updates via Server-Sent Events</span>
             </div>
             <div id="payoutGrid" class="ag-theme-alpine-dark" style="height: 380px; width: 100%;"></div>
         </div>
@@ -803,8 +984,8 @@
         <!-- Section 2: Agent Registry & Spend Velocity -->
         <div class="grid-section">
             <div class="grid-header">
-                <div class="grid-title">🤖 Autonomous Agent Swarm & Spend Velocity</div>
-                <span style="font-size: 0.8rem; color: var(--text-secondary);">Hourly spend velocity vs cap tracking</span>
+                <div class="grid-title">Autonomous Agent Swarm & Spend Velocity</div>
+                <span style="font-size: 14px; color: var(--text-muted);">Hourly spend velocity vs cap tracking</span>
             </div>
             <div id="agentGrid" class="ag-theme-alpine-dark" style="height: 220px; width: 100%;"></div>
         </div>
@@ -812,17 +993,17 @@
         <!-- Section 3: Task Contract Registry -->
         <div class="grid-section">
             <div class="grid-header">
-                <div class="grid-title">📋 Operator Task Contract Registry</div>
+                <div class="grid-title">Operator Task Contract Registry</div>
             </div>
             <div id="taskGrid" class="ag-theme-alpine-dark" style="height: 240px; width: 100%;"></div>
         </div>
     </main>
 
-    <!-- Modal Dialog for HITL Approve / Reject -->
+    <!-- Modal Dialog for Review Approve / Reject -->
     <div id="reviewModal" class="modal-backdrop">
         <div class="modal-card">
             <div class="modal-header">
-                <div class="modal-title">Human-in-the-Loop Review</div>
+                <div class="modal-title">Review payout</div>
                 <button class="btn-close-modal" id="btnModalCloseHeader">✕</button>
             </div>
             <div class="modal-body">
@@ -846,24 +1027,24 @@
                 </div>
 
                 <div>
-                    <div class="review-section-title">📦 Deliverables Submitted by Agent</div>
+                    <div class="review-section-title">Deliverables Submitted by Agent</div>
                     <div id="modalDeliverables" class="box-pre">None</div>
                 </div>
 
                 <div>
-                    <div class="review-section-title">🧠 Gate 2 LLM Proof-of-Task Evaluation</div>
+                    <div class="review-section-title">AI review of the proof</div>
                     <div id="modalLlmVerdict" class="box-pre">No evaluation recorded</div>
                 </div>
 
                 <div>
-                    <div class="review-section-title">⚠️ Decision Reasons</div>
+                    <div class="review-section-title">Decision Reasons</div>
                     <div id="modalReasons" style="display: flex; gap: 6px; flex-wrap: wrap;">None</div>
                 </div>
             </div>
             <div class="modal-actions">
                 <button class="btn-close-modal" id="btnModalCancel">Cancel</button>
                 <button class="btn-confirm-reject" id="btnModalReject">Reject Payout</button>
-                <button class="btn-confirm-approve" id="btnModalApprove">Approve & Dispatch Payout</button>
+                <button class="btn-confirm-approve" id="btnModalApprove">Approve & send payout</button>
             </div>
         </div>
     </div>
@@ -956,10 +1137,10 @@
                         return `<span class="status-badge badge-RECEIVED"><span class="spinner-inline"></span> In Review</span>`;
                     }
                     if (status === "BLOCKED") {
-                        return `<span class="status-badge badge-BLOCKED">⚠️ BLOCKED</span>`;
+                        return `<span class="status-badge badge-BLOCKED">BLOCKED</span>`;
                     }
                     if (status === "ONHOLD") {
-                        return `<span class="status-badge badge-ONHOLD">⏳ ONHOLD</span>`;
+                        return `<span class="status-badge badge-ONHOLD">ONHOLD</span>`;
                     }
                     return `<span class="status-badge badge-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
                 }
@@ -1006,7 +1187,7 @@
                     const row = p.data;
                     const id = escapeHtml(row.payout_request_id);
                     if (row.status === "PENDING_HUMAN_APPROVAL") {
-                        return `<button class="btn-action-review" data-action="review" data-id="${id}">🔍 Review</button>`;
+                        return `<button class="btn-action-review" data-action="review" data-id="${id}">Review</button>`;
                     }
                     if (row.status === "UNCLAIMED") {
                         return `<button class="btn-action-cancel" data-action="cancel" data-id="${id}">Cancel</button>`;
@@ -1109,9 +1290,10 @@
             },
             { 
                 field: "allowed_recipient", 
-                headerName: "Allowed Recipient", 
+                headerName: "Recipient", 
                 width: 210,
-                cellRenderer: p => escapeHtml(p.value)
+                valueFormatter: () => "sandbox account (hidden)",
+                cellRenderer: () => "sandbox account (hidden)"
             },
             { 
                 field: "assigned_agent_id", 
@@ -1740,8 +1922,51 @@
             }
         }
 
+        // --- How It Works Strip Toggle & Preference ---
+        function initHowItWorks() {
+            const toggle = document.getElementById("howItWorksToggle");
+            const content = document.getElementById("howItWorksContent");
+            const icon = document.getElementById("howItWorksIcon");
+            if (!toggle || !content || !icon) return;
+
+            let isExpanded = true;
+            try {
+                const stored = localStorage.getItem("payagent_how_it_works");
+                if (stored !== null) {
+                    isExpanded = stored === "true";
+                }
+            } catch (e) {
+                // Ignore localStorage errors
+            }
+
+            function setExpanded(expanded) {
+                isExpanded = expanded;
+                toggle.setAttribute("aria-expanded", String(expanded));
+                content.style.display = expanded ? "flex" : "none";
+                icon.textContent = expanded ? "Collapse ▴" : "Expand ▾";
+                try {
+                    localStorage.setItem("payagent_how_it_works", String(expanded));
+                } catch (e) {
+                    // Ignore localStorage errors
+                }
+            }
+
+            setExpanded(isExpanded);
+
+            toggle.addEventListener("click", () => {
+                setExpanded(!isExpanded);
+            });
+            toggle.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setExpanded(!isExpanded);
+                }
+            });
+        }
+
         // --- Initialization & Delegated Event Listeners ---
         document.addEventListener("DOMContentLoaded", () => {
+            initHowItWorks();
             // Restore token ONLY from sessionStorage (never localStorage)
             const tokenInput = document.getElementById("operatorToken");
             const savedToken = sessionStorage.getItem("payagent_token");
