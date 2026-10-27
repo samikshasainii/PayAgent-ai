@@ -249,6 +249,7 @@ Reviewer verification: 54/54 tests on a clean venv; mutation testing confirmed c
     - the AG Grid SRI tags;
     - the token in `sessionStorage` only (`localStorage` only for UI preferences, wrapped in try/catch);
     - the MOCK MODE banner.
+- [x] M3.10 Console "This visit" view (frontend-only display filter; nothing deleted; ?view=all shows full history). Commit a94f5f6. Reviewer verified 2026-10-28.
 - [ ] M3.7 Final rehearsal on the hosted instance (after M3.8 and M3.9 are deployed): warm the instance -> run Simulator A, B and C from the console -> operator approves C and watches it reach `PAID` over SSE -> verify every batch ID directly against PayPal -> record the rough cut. **Never run `src.seed --reset` or any reset against the hosted database**; the Simulator creates fresh tasks, so no reset is needed.
 
 ### Not doing before submission (could destabilise the working build)
