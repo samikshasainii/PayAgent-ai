@@ -625,6 +625,26 @@
             border-color: var(--accent);
             box-shadow: 0 0 0 1px var(--accent);
         }
+        .filter-divider {
+            width: 1px;
+            height: 18px;
+            background: var(--line);
+            margin: 0 0.25rem;
+        }
+        .view-since-label {
+            display: inline-flex;
+            align-items: center;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+            color: var(--accent-text);
+            background: rgba(0, 75, 255, 0.12);
+            border: 1px solid var(--accent);
+            padding: 0.2rem 0.5rem;
+            border-radius: 2px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
 
         /* Status chips & badges */
         .status-badge {
@@ -1142,11 +1162,16 @@
             <div class="grid-header">
                 <div class="grid-title">Guardian Payout Requests & Audit Log</div>
                 <div class="filter-bar">
+                    <span class="filter-label">View:</span>
+                    <button type="button" class="filter-chip active" id="viewThisVisit">This visit</button>
+                    <button type="button" class="filter-chip" id="viewAllHistory">All history</button>
+                    <span id="viewSinceLabel" class="view-since-label" style="display: none;"></span>
+                    <span class="filter-divider"></span>
                     <span class="filter-label">Filter:</span>
-                    <button class="filter-chip active" data-filter="all" id="filterAll">All</button>
-                    <button class="filter-chip" data-filter="needs_review" id="filterNeedsReview">Needs review</button>
-                    <button class="filter-chip" data-filter="paid" id="filterPaid">Paid</button>
-                    <button class="filter-chip" data-filter="blocked" id="filterBlocked">Blocked</button>
+                    <button type="button" class="filter-chip active" data-filter="all" id="filterAll">All</button>
+                    <button type="button" class="filter-chip" data-filter="needs_review" id="filterNeedsReview">Needs review</button>
+                    <button type="button" class="filter-chip" data-filter="paid" id="filterPaid">Paid</button>
+                    <button type="button" class="filter-chip" data-filter="blocked" id="filterBlocked">Blocked</button>
                 </div>
             </div>
             <div id="payoutGrid" class="ag-theme-alpine-dark" style="height: 380px; width: 100%;"></div>
@@ -1249,7 +1274,15 @@
 
         function getAuthToken() {
             // Read from sessionStorage or DOM element, NEVER localStorage
-            return (sessionStorage.getItem("payagent_token") || document.getElementById("operatorToken").value || "").trim();
+            let token = "";
+            try {
+                token = sessionStorage.getItem("payagent_token") || "";
+            } catch (e) {}
+            if (!token) {
+                const el = document.getElementById("operatorToken");
+                if (el) token = el.value || "";
+            }
+            return token.trim();
         }
 
         function getAuthHeaders() {
@@ -1352,6 +1385,149 @@
             return chip;
         }
 
+        // --- This Visit / All History View Filter ---
+        let currentViewMode = "visit"; // default is "visit"
+        let inMemoryBaseline = null;
+        let latestRawPayouts = null;
+        let latestRawAgents = null;
+        let latestRawTasks = null;
+
+        function getStoredBaseline() {
+            if (inMemoryBaseline) return inMemoryBaseline;
+            try {
+                const raw = sessionStorage.getItem("payagent_visit_baseline");
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && Array.isArray(parsed.payouts) && Array.isArray(parsed.agents) && Array.isArray(parsed.tasks) && parsed.at) {
+                        inMemoryBaseline = parsed;
+                        return parsed;
+                    }
+                }
+            } catch (e) {
+                // sessionStorage blocked or JSON parse failure
+            }
+            return null;
+        }
+
+        function saveBaseline(baseline) {
+            inMemoryBaseline = baseline;
+            try {
+                sessionStorage.setItem("payagent_visit_baseline", JSON.stringify(baseline));
+            } catch (e) {
+                // Storage blocked or throws -> in-memory fallback intact
+            }
+        }
+
+        function initViewMode() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get("view") === "all") {
+                    currentViewMode = "all";
+                    try { sessionStorage.setItem("payagent_view_mode", "all"); } catch (e) {}
+                    return;
+                }
+            } catch (e) {}
+
+            try {
+                const saved = sessionStorage.getItem("payagent_view_mode");
+                if (saved === "all" || saved === "visit") {
+                    currentViewMode = saved;
+                }
+            } catch (e) {}
+        }
+
+        function updateViewToggleUI() {
+            const btnVisit = document.getElementById("viewThisVisit");
+            const btnAll = document.getElementById("viewAllHistory");
+            const sinceLabel = document.getElementById("viewSinceLabel");
+            if (btnVisit && btnAll) {
+                btnVisit.classList.toggle("active", currentViewMode === "visit");
+                btnAll.classList.toggle("active", currentViewMode === "all");
+            }
+            if (sinceLabel) {
+                const baseline = getStoredBaseline();
+                if (currentViewMode === "visit" && baseline && baseline.at) {
+                    sinceLabel.textContent = `VIEW // SINCE ${baseline.at}`;
+                    sinceLabel.style.display = "inline-flex";
+                } else {
+                    sinceLabel.textContent = "";
+                    sinceLabel.style.display = "none";
+                }
+            }
+        }
+
+        function applyViewFilters() {
+            const baseline = getStoredBaseline();
+            const isVisit = currentViewMode === "visit" && baseline;
+
+            // 1. Process Payouts
+            if (latestRawPayouts) {
+                const baselinePayoutIds = new Set(baseline ? baseline.payouts : []);
+                const visiblePayouts = isVisit
+                    ? latestRawPayouts.filter(p => !baselinePayoutIds.has(p.payout_request_id))
+                    : latestRawPayouts.slice();
+
+                if (payoutGridApi) payoutGridApi.setGridOption("rowData", visiblePayouts);
+
+                // Compute metrics from visiblePayouts
+                let totalVol = 0;
+                let pendingCount = 0;
+                let paidCount = 0;
+                visiblePayouts.forEach(p => {
+                    if (p.status === "PAID") {
+                        totalVol += parseFloat(p.amount || 0);
+                        paidCount++;
+                    }
+                    if (p.status === "PENDING_HUMAN_APPROVAL") {
+                        pendingCount++;
+                    }
+                });
+                document.getElementById("metricTotalVol").textContent = `$${totalVol.toFixed(2)}`;
+                document.getElementById("metricPending").textContent = pendingCount;
+                document.getElementById("metricPaid").textContent = paidCount;
+            }
+
+            // 2. Process Agents
+            if (latestRawAgents) {
+                const baselineAgentIds = new Set(baseline ? baseline.agents : []);
+                const visibleAgents = isVisit
+                    ? latestRawAgents.filter(a => !a.agent_id.startsWith("sim-") || !baselineAgentIds.has(a.agent_id))
+                    : latestRawAgents.slice();
+
+                if (agentGridApi) agentGridApi.setGridOption("rowData", visibleAgents);
+
+                let quarantinedCount = 0;
+                visibleAgents.forEach(a => {
+                    if (a.status === "QUARANTINED") quarantinedCount++;
+                });
+                const qElem = document.getElementById("metricQuarantined");
+                qElem.textContent = quarantinedCount;
+                qElem.style.color = quarantinedCount > 0 ? "var(--danger)" : "var(--text)";
+            }
+
+            // 3. Process Tasks
+            if (latestRawTasks) {
+                const baselineTaskIds = new Set(baseline ? baseline.tasks : []);
+                const visibleTasks = isVisit
+                    ? latestRawTasks.filter(t => (!t.task_id.startsWith("sim-task-") && !t.task_id.startsWith("demo-task-")) || !baselineTaskIds.has(t.task_id))
+                    : latestRawTasks.slice();
+
+                if (taskGridApi) taskGridApi.setGridOption("rowData", visibleTasks);
+                document.getElementById("metricTasks").textContent = visibleTasks.length;
+            }
+
+            updateViewToggleUI();
+        }
+
+        function setViewMode(mode) {
+            if (currentViewMode === mode) return;
+            currentViewMode = mode;
+            try {
+                sessionStorage.setItem("payagent_view_mode", mode);
+            } catch (e) {}
+            applyViewFilters();
+        }
+
         // --- Quick Filter State & Logic ---
         let currentPayoutFilter = "all";
 
@@ -1375,7 +1551,7 @@
 
         function setPayoutFilter(filterName) {
             currentPayoutFilter = filterName;
-            document.querySelectorAll(".filter-chip").forEach(btn => {
+            document.querySelectorAll(".filter-chip[data-filter]").forEach(btn => {
                 btn.classList.toggle("active", btn.dataset.filter === filterName);
             });
             if (payoutGridApi) {
@@ -1805,31 +1981,65 @@
             try {
                 // 1. Fetch Payout Requests
                 const payoutRes = await fetch("/api/v1/payout-requests", { headers });
-                if (payoutRes.ok) {
-                    const payouts = await payoutRes.json();
+                if (payoutRes.status === 401) {
+                    stopPolling();
+                    if (sseSource) { sseSource.close(); sseSource = null; }
+                    updateConnectionBadge("unauthorized");
+                    return;
+                }
+                const payouts = payoutRes.ok ? await payoutRes.json() : null;
+
+                // 2. Fetch Agents
+                const agentRes = await fetch("/api/v1/agents", { headers });
+                if (agentRes.status === 401) {
+                    stopPolling();
+                    if (sseSource) { sseSource.close(); sseSource = null; }
+                    updateConnectionBadge("unauthorized");
+                    return;
+                }
+                const agents = agentRes.ok ? await agentRes.json() : null;
+
+                // 3. Fetch Tasks
+                const taskRes = await fetch("/api/v1/tasks", { headers });
+                if (taskRes.status === 401) {
+                    stopPolling();
+                    if (sseSource) { sseSource.close(); sseSource = null; }
+                    updateConnectionBadge("unauthorized");
+                    return;
+                }
+                const tasks = taskRes.ok ? await taskRes.json() : null;
+
+                // Baseline is captured on the first successful fetch of all three in this tab
+                let baseline = getStoredBaseline();
+                if (!baseline && payouts && agents && tasks) {
+                    const now = new Date();
+                    const hh = String(now.getHours()).padStart(2, "0");
+                    const mm = String(now.getMinutes()).padStart(2, "0");
+                    baseline = {
+                        payouts: payouts.map(p => p.payout_request_id),
+                        agents: agents.map(a => a.agent_id),
+                        tasks: tasks.map(t => t.task_id),
+                        at: `${hh}:${mm}`
+                    };
+                    saveBaseline(baseline);
+                }
+
+                if (payouts) {
                     currentPayoutsMap.clear();
                     payouts.forEach(p => currentPayoutsMap.set(p.payout_request_id, p));
+                    latestRawPayouts = payouts;
+                }
+                if (agents) {
+                    latestRawAgents = agents;
+                }
+                if (tasks) {
+                    latestRawTasks = tasks;
+                }
 
-                    if (payoutGridApi) payoutGridApi.setGridOption("rowData", payouts);
+                applyViewFilters();
 
-                    // Compute metrics
-                    let totalVol = 0;
-                    let pendingCount = 0;
-                    let paidCount = 0;
-                    payouts.forEach(p => {
-                        if (p.status === "PAID") {
-                            totalVol += parseFloat(p.amount || 0);
-                            paidCount++;
-                        }
-                        if (p.status === "PENDING_HUMAN_APPROVAL") {
-                            pendingCount++;
-                        }
-                    });
-                    document.getElementById("metricTotalVol").textContent = `$${totalVol.toFixed(2)}`;
-                    document.getElementById("metricPending").textContent = pendingCount;
-                    document.getElementById("metricPaid").textContent = paidCount;
-
-                    // Update tracked simulator scenarios
+                // Update tracked simulator scenarios
+                if (payouts) {
                     const scenarioCardMap = {
                         happy: "resScenarioHappy",
                         rogue: "resScenarioRogue",
@@ -1891,34 +2101,6 @@
                             });
                         }
                     }
-                } else if (payoutRes.status === 401) {
-                    stopPolling();
-                    if (sseSource) { sseSource.close(); sseSource = null; }
-                    updateConnectionBadge("unauthorized");
-                    return;
-                }
-
-                // 2. Fetch Agents
-                const agentRes = await fetch("/api/v1/agents", { headers });
-                if (agentRes.ok) {
-                    const agents = await agentRes.json();
-                    if (agentGridApi) agentGridApi.setGridOption("rowData", agents);
-
-                    let quarantinedCount = 0;
-                    agents.forEach(a => {
-                        if (a.status === "QUARANTINED") quarantinedCount++;
-                    });
-                    const qElem = document.getElementById("metricQuarantined");
-                    qElem.textContent = quarantinedCount;
-                    qElem.style.color = quarantinedCount > 0 ? "var(--danger)" : "var(--text)";
-                }
-
-                // 3. Fetch Tasks
-                const taskRes = await fetch("/api/v1/tasks", { headers });
-                if (taskRes.ok) {
-                    const tasks = await taskRes.json();
-                    if (taskGridApi) taskGridApi.setGridOption("rowData", tasks);
-                    document.getElementById("metricTasks").textContent = tasks.length;
                 }
             } catch (err) {
                 console.error("Refresh error:", err);
@@ -2308,14 +2490,19 @@
             initHowItWorks();
             // Restore token ONLY from sessionStorage (never localStorage)
             const tokenInput = document.getElementById("operatorToken");
-            const savedToken = sessionStorage.getItem("payagent_token");
+            let savedToken = "";
+            try {
+                savedToken = sessionStorage.getItem("payagent_token");
+            } catch (e) {}
             if (savedToken) {
                 tokenInput.value = savedToken;
             }
 
             tokenInput.addEventListener("change", (e) => {
                 const val = e.target.value.trim();
-                sessionStorage.setItem("payagent_token", val);
+                try {
+                    sessionStorage.setItem("payagent_token", val);
+                } catch (e) {}
                 connectSSE();
             });
 
@@ -2353,8 +2540,20 @@
                 if (action === "release") releaseAgent(id);
             });
 
+            // View Mode initialization and listeners
+            initViewMode();
+            updateViewToggleUI();
+            const btnThisVisit = document.getElementById("viewThisVisit");
+            if (btnThisVisit) {
+                btnThisVisit.addEventListener("click", () => setViewMode("visit"));
+            }
+            const btnAllHistory = document.getElementById("viewAllHistory");
+            if (btnAllHistory) {
+                btnAllHistory.addEventListener("click", () => setViewMode("all"));
+            }
+
             // Quick Filter chip listeners
-            document.querySelectorAll(".filter-chip").forEach(btn => {
+            document.querySelectorAll(".filter-chip[data-filter]").forEach(btn => {
                 btn.addEventListener("click", () => {
                     setPayoutFilter(btn.dataset.filter);
                 });
