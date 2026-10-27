@@ -1224,6 +1224,10 @@
                         <span class="receipt-label">AGENT //</span>
                         <span class="receipt-value" id="modalAgentId">-</span>
                     </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">PAYPAL //</span>
+                        <span class="receipt-value" id="modalPaypalRef">not sent yet</span>
+                    </div>
                     <div class="receipt-row-reasons">
                         <span class="receipt-label">REASON CODES //</span>
                         <div id="modalReasons" class="reasons-flex-wrap">None</div>
@@ -1606,6 +1610,20 @@
                 minWidth: 200,
                 enableCellChangeFlash: true,
                 cellRenderer: p => getStatusBadgeHtml(p.value)
+            },
+            {
+                headerName: "PayPal",
+                width: 190,
+                cellClass: "cell-mono",
+                cellRenderer: p => {
+                    const row = p.data || {};
+                    const batchRaw = row.payout_batch_id || "";
+                    const txnRaw = (row.items && row.items[0] && row.items[0].transaction_id) ? row.items[0].transaction_id : "";
+                    const batchVal = batchRaw ? escapeHtml(batchRaw) : "-";
+                    const txnVal = txnRaw ? escapeHtml(txnRaw) : "-";
+                    const tooltip = `BATCH // ${batchRaw || "-"} | TXN // ${txnRaw || "-"}`;
+                    return `<div title="${escapeHtml(tooltip)}" style="line-height: 1.3; font-size: 11px; display: flex; flex-direction: column; justify-content: center; height: 100%;"><div>BATCH // ${batchVal}</div><div>TXN // ${txnVal}</div></div>`;
+                }
             },
             { 
                 field: "risk_score", 
@@ -2120,6 +2138,7 @@
             document.getElementById("modalAmount").textContent = `$${parseFloat(req.amount || 0).toFixed(2)}`;
             document.getElementById("modalTaskId").textContent = req.task_id || "-";
             document.getElementById("modalAgentId").textContent = req.agent_id || "-";
+            document.getElementById("modalPaypalRef").textContent = req.payout_batch_id || "not sent yet";
 
             // Deliverables
             const delivElem = document.getElementById("modalDeliverables");
