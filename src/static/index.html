@@ -1612,15 +1612,15 @@
                 cellRenderer: p => getStatusBadgeHtml(p.value)
             },
             {
-                headerName: "PayPal",
-                width: 160,
+                headerName: "PayPal batch",
+                width: 200,
+                minWidth: 180,
                 cellClass: "cell-mono",
                 cellRenderer: p => {
                     const row = p.data || {};
                     const batchRaw = row.payout_batch_id || "";
-                    const batchVal = batchRaw ? `BATCH // ${escapeHtml(batchRaw)}` : "-";
-                    const tooltip = batchRaw ? `BATCH // ${batchRaw}` : "-";
-                    return `<span title="${escapeHtml(tooltip)}">${batchVal}</span>`;
+                    const batchVal = batchRaw ? escapeHtml(batchRaw) : "-";
+                    return `<span title="${escapeHtml(batchRaw || '-')}" style="font-size: 11px;">${batchVal}</span>`;
                 }
             },
             { 
