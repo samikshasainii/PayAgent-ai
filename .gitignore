@@ -70,3 +70,6 @@ data/processed/*
 htmlcov/
 .mypy_cache/
 
+# Local reference & scratch files
+paypal discord conversations.txt
+
