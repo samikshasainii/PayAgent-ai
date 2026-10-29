@@ -1,168 +1,164 @@
-# PayAgent AI: Spend-Control Guardian for AI Agents, Settled on PayPal Payouts
+# PayAgent: Spend-Control & Payout Gateway for Autonomous Agents
 
-> Built for the **PayPal AI Hackathon 2026**.  
-> Lets AI agents get paid for completed tasks through **PayPal Payouts** without ever holding payment credentials. Every payout is bounded by an operator-defined task budget and recipient, and is checked by deterministic rules plus an LLM Proof-of-Task review, with Human-in-the-Loop approval for anything risky.
+> A secure, policy-governed payout orchestration layer connecting autonomous LLM agents to PayPal's REST Payouts API.
+> PayAgent allows autonomous agents to receive payments for verified work without ever exposing API credentials or private keys to the agents themselves. Every payout is constrained by operator-defined budgets and recipients, protected by deterministic validation rules and LLM proof-of-work review, with automated escalation to human operators for high-risk transactions.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PayPal SDK](https://img.shields.io/badge/PayPal-Sandbox%20Payouts%20API-003087?logo=paypal)](https://developer.paypal.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-v0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python)](https://python.org)
+[![CI](https://github.com/samikshasainii/PayPal_Hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/samikshasainii/PayPal_Hackathon/actions/workflows/ci.yml)
 
 ---
 
-## 1. Executive Summary
+## 1. Overview & Architecture
 
-As autonomous AI agents (code reviewers, research assistants, data miners, and bounty solvers) proliferate, they increasingly need to transact: paying human-in-the-loop reviewers, purchasing compute/data, and settling completed milestones.
+Autonomous AI agents (such as code reviewers, data labelers, and security bounty solvers) increasingly need to transact programmatically. However, granting agents direct access to payment cards or financial credentials creates significant security and financial risks, while requiring human approval for every micro-transaction eliminates autonomy.
 
-Currently, financial autonomy for AI agents faces two fatal extremes:
-1. **The Runaway Card Risk:** Giving agents unrestricted payment access causes disastrous runaway spend from infinite loops, hallucinations, or prompt injection.
-2. **The Micro-Approval Bottleneck:** Requiring human managers to sign off on every \$0.50 micro-payout destroys agent autonomy.
+**PayAgent** solves this by serving as an isolated, non-custodial financial gateway:
+1. **Operators Register Tasks**: Tasks are initialized with immutable budgets, assigned agent IDs, fixed PayPal recipient emails, and required deliverable criteria.
+2. **Agents Request Payouts**: Agents authenticate via REST or PayAgent's Model Context Protocol (MCP) server. Payout amounts are capped by the task budget, and recipients cannot be overridden by the agent.
+3. **Gate 1 (Deterministic Policy Evaluation)**: Submissions are checked against strict rules (budget caps, hourly agent velocity limits, task assignment validation, and replay protection) before invoking any external models.
+4. **Gate 2 (LLM Proof-of-Work Verification)**: Deliverables are verified asynchronously by an evaluation model (e.g. Gemini). The verification engine can only approve within predefined policy limits or escalate to human review; prompt injection or model hallucination cannot bypass budget ceilings.
+5. **Human-in-the-Loop (HITL) Governance**: Payouts exceeding auto-approval thresholds (e.g., >$50) or containing ambiguous deliverables route to an operator queue.
+6. **PayPal Settlement & Reconciliation**: Approved payouts settle via the PayPal Payouts v1 REST API with stored idempotency keys, cryptographically verified webhooks, and automated polling reconciliation.
+7. **Real-Time Operator Console**: Web dashboard featuring live Server-Sent Events (SSE), audit logs, and one-click manual approval/rejection.
 
-**PayAgent AI** is the only component that holds PayPal credentials. Agents never see them.
-1. **Operators register tasks** with a budget, a fixed PayPal recipient, and required deliverables.
-2. **Agents request payment** against an assigned task (REST or PayAgent's own **MCP server**). They cannot choose the amount above budget or the recipient.
-3. **Gate 1: deterministic rules** (assignment, budget, deliverables, replay, hourly velocity) reject bad requests instantly, with no LLM call.
-4. **Gate 2: LLM Proof-of-Task review** can only *escalate* to a human, never approve beyond Gate 1, so prompt injection stays bounded.
-5. **Human-in-the-Loop approval** for payouts above $50 or with doubtful proof.
-6. **PayPal Payouts v1** settlement with stored idempotency keys, RSA-verified webhooks, and a reconciliation poller.
-7. **AG Grid operator console** with live (SSE) status, reason codes, and one-click approve/reject.
-
-Decision rules, state machines and threat model: [ARCHITECTURE.md](./ARCHITECTURE.md). Future work (e.g. a PYUSD rail) is listed in its §9.
-
----
-
-## 2. System Architecture
-
-For the full design, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+For full architecture details, state machines, and threat models, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```
  Operator ──► Task Registry (budget, recipient, required deliverables)
                      │
- AI Agent ──REST/MCP──► PayAgent Guardian
-                     │   Gate 1: deterministic rules ──fail──► POLICY_REJECTED
-                     │   Gate 2: LLM Proof-of-Task review (escalate-only)
+ AI Agent ──REST/MCP─► PayAgent Gateway
+                     │   Gate 1: Deterministic Rules ──fail──► POLICY_REJECTED
+                     │   Gate 2: LLM Proof Review (Escalate-only)
                      │
           ┌──────────┴───────────┐
-     ≤ $50 & proof OK     > $50 or doubtful proof
+     ≤ $50 & proof OK     > $50 or flagged proof
           │                      │
-          │              Human approves in console
+          │              Human Review in Console
           ▼                      ▼
-       PayPal Payouts v1 (sandbox) ──webhooks / poller──► Audit DB ──SSE──► AG Grid console
+       PayPal Payouts v1 ──webhooks / poller──► Audit DB ──SSE──► Operator Console
 ```
 
 ---
 
-## 3. Sponsor Tool Integrations
-
-* **Postman:** Collection in `docs/postman/PayAgent.postman_collection.json` covering setup, the happy path, over-budget, replay and injection requests, HITL approval, and status checks.
-* **Render:** `render.yaml` blueprint for the hosted demo (single worker, external persistent DB).
-* **AG Grid:** Operator console with live payout status, reason codes, agent budget burn, and one-click approve/reject.
-
----
-
-## 4. Repository Structure
+## 2. Repository Structure
 
 ```text
-├── configs/               # Environment & experiment configs (.yaml, .json)
-├── data/
-│   ├── raw/               # Immutable raw records (git-ignored)
-│   └── processed/         # Artifacts & intermediate caches (git-ignored)
-├── docs/
-│   ├── postman/           # Official Postman collection & environment
-│   └── reference/         # Copies of PayPal AI developer docs (third-party, not MIT)
-├── notebooks/             # Exploratory prototyping & agent simulation
-├── src/                   # Production application & pipeline code
-│   ├── guardian.py        # Gate 1 rules, decision table, budget reservation
-│   ├── proof_review.py    # Gate 2 LLM Proof-of-Task review
-│   ├── gate2_reviewer.py  # Async Gate 2: background review, restart-safe sweeper
-│   ├── paypal_client.py   # OAuth cache, Payouts v1, mock transport
-│   ├── poller.py / webhooks.py  # Payout status reconciliation
-│   ├── mcp_server.py      # PayAgent MCP server for agents
-│   ├── static/            # AG Grid operator console
-│   └── main.py            # FastAPI service entry point
-├── tests/                 # Unit, integration, and sandbox evaluation tests
-├── .env.example           # Sanitized environment variable template
-├── .gitignore             # Strict ignore rules for secrets, DBs, caches
-├── ARCHITECTURE.md        # Complete system blueprint & data contracts
-├── EXECUTION_PLAN.md      # Milestone implementation schedule
-├── HACKATHON_RESEARCH.md  # Competitive intelligence & PayPal API specs
-├── LICENSE                # MIT License
-├── render.yaml            # Render cloud deployment blueprint
-└── requirements.txt       # Pinned project dependencies
+├── .github/
+│   └── workflows/
+│       └── ci.yml             # GitHub Actions CI pipeline (Pytest suite)
+├── docs/                      # Documentation & API Specifications
+│   ├── ARCHITECTURE.md        # System architecture, state machine & threat model
+│   ├── DEPLOYMENT.md          # Hosting & deployment runbook (Render, Docker)
+│   └── postman/               # Postman collection & environment specifications
+├── src/                       # Application Source Code
+│   ├── main.py                # FastAPI entry point, routers & middleware
+│   ├── config.py              # Application settings & environment parsing
+│   ├── database.py            # Async SQLAlchemy connection & session management
+│   ├── seed.py                # Database seeding utility for local development
+│   ├── mcp_server/            # Model Context Protocol (FastMCP) server
+│   │   └── server.py
+│   ├── models/                # SQLAlchemy ORM models
+│   │   ├── agent.py, budget.py, incident.py, payout.py, task.py, webhook.py
+│   ├── schemas/               # Pydantic schemas & data transfer contracts
+│   │   ├── agent.py, enums.py, llm.py, payout.py, task.py
+│   ├── services/              # Domain logic & integration services
+│   │   ├── auth.py            # API key hashing (SHA-256) & authentication
+│   │   ├── demo_scenarios.py  # Automated test scenario runner
+│   │   ├── events.py          # Server-Sent Events (SSE) broadcaster
+│   │   ├── gate2_reviewer.py  # Asynchronous Gate 2 review orchestrator
+│   │   ├── guardian.py        # Gate 1 deterministic policy evaluator
+│   │   ├── payout_service.py  # Payout lifecycle manager & transaction handler
+│   │   ├── paypal_client.py   # Async PayPal REST Payouts API client
+│   │   ├── poller.py          # Payout batch status reconciliation poller
+│   │   ├── proof_review.py    # LLM verification engine
+│   │   ├── state_machine.py   # State transitions & status mapping
+│   │   └── webhooks.py        # Webhook signature verification & handler
+│   └── static/
+│       └── index.html         # Real-time web operator dashboard
+├── scripts/                   # Tooling & Simulation Scripts
+│   ├── demo_agent.py          # Multi-scenario agent simulator for E2E testing
+│   ├── seed_hosted.py         # Remote database initializer
+│   └── snapshot_schema.py     # Database schema snapshot generator
+├── tests/                     # Automated Test Suite
+│   ├── conftest.py            # Pytest async database and client fixtures
+│   ├── schema_snapshot.json   # Schema migration detection snapshot
+│   ├── fixtures/              # Test payloads (genuine, injection, weak work)
+│   └── test_*.py              # Comprehensive test modules
+├── .env.example               # Sanitized environment variable template
+├── .gitignore                 # Git ignore rules
+├── LICENSE                    # MIT License
+├── pytest.ini                 # Pytest runner configuration
+├── render.yaml                # Infrastructure-as-code deployment blueprint
+└── requirements.txt           # Pinned project dependencies
 ```
 
 ---
 
-## 5. Quickstart & Installation
+## 3. Quickstart
 
 ### Prerequisites
-- Python 3.11 or higher
-- A free [PayPal Developer Sandbox Account](https://developer.paypal.com)
-- A Gemini API key (free tier, for the Proof-of-Task review)
+- Python 3.11+
+- [PayPal Developer Sandbox Account](https://developer.paypal.com) (or run in Mock Mode)
+- Google Gemini API key (optional for Gate 2 LLM reviews)
 
-### Step 1: Clone and Set Up Virtual Environment
+### 1. Clone & Set Up Environment
 ```bash
 git clone https://github.com/samikshasainii/PayPal_Hackathon.git
 cd PayPal_Hackathon
 
-# Create virtual environment
-python -m venv venv
+python -m venv .venv
+# Windows:
+.venv\Scripts\Activate.ps1
+# macOS/Linux:
+# source .venv/bin/activate
 
-# Activate virtual environment
-# Windows (PowerShell):
-venv\Scripts\Activate.ps1
-# macOS / Linux:
-# source venv/bin/activate
-```
-
-### Step 2: Install Dependencies
-```bash
 pip install -r requirements.txt
 ```
 
-### Step 3: Configure Environment Variables
+### 2. Configure Environment
 ```bash
 cp .env.example .env
 ```
-Fill in `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `SANDBOX_RECIPIENT_EMAIL`, and `GEMINI_API_KEY`. To try it without keys, set `MOCK_PAYPAL=true` (the console shows a MOCK MODE banner).
+Populate `.env` with your credentials:
+```env
+PAYPAL_CLIENT_ID=your_paypal_client_id
+PAYPAL_CLIENT_SECRET=your_paypal_client_secret
+SANDBOX_RECIPIENT_EMAIL=your_sandbox_account@example.com
+GEMINI_API_KEY=your_gemini_api_key
 
-### Step 4: Run the Application
+# Set to true to test locally without live credentials:
+MOCK_PAYPAL=true
+```
+
+### 3. Run the Service
 ```bash
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
-Open [http://localhost:8000/docs](http://localhost:8000/docs) for the interactive OpenAPI documentation or [http://localhost:8000](http://localhost:8000) for the Swarm Treasury Terminal.
+- **Operator Dashboard**: [http://localhost:8000](http://localhost:8000)
+- **Interactive OpenAPI Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Step 5: Run the Demo Agent (Live Demonstration)
-Before every demo run or video take, reset the demo database to a clean baseline:
+---
+
+## 4. Testing & Simulation
+
+Initialize test data and execute the automated demo agent:
 ```bash
+# Seed development database
 python -m src.seed --reset
-```
 
-*(Optional / Recommended)* Send a warm-up call to prime the LLM endpoint connection and cache before recording:
-```bash
-python -m scripts.demo_agent --scenario happy
-python -m src.seed --reset
-```
-
-Then run the automated multi-scenario demo agent:
-```bash
+# Run end-to-end agent simulation scenarios
 python -m scripts.demo_agent --scenario all
 ```
-This executes:
-1. **Happy Path (`--scenario happy`)**: Agent submits $25.00 Proof-of-Task -> Gate 1 returns 202 `RECEIVED` -> Gate 2 LLM reviews asynchronously and auto-approves (`AUTO_APPROVED`) -> Dispatches to PayPal Sandbox (`SUBMITTED`) -> Poller reconciles to `PAID`.
-2. **Tamper Detection (`--scenario tamper`)**: Submits an over-budget / tampered request ($150 vs $120 cap) -> Gate 1 hard rejection 422 `OVER_TASK_BUDGET` without invoking the LLM.
-3. **High-Value Escalation (`--scenario escalate`)**: Submits a high-value $120.00 proof -> Gate 1 returns 202 `RECEIVED` -> Gate 2 LLM verifies proof (`passed=True`), flags `ABOVE_AUTO_LIMIT` (>$50), and routes to `PENDING_HUMAN_APPROVAL` for operator review.
 
----
-
-## 6. Testing & Verification
-
-Run the test suite:
+Run the automated test suite:
 ```bash
-pytest tests/ -v
+pytest
 ```
 
 ---
 
-## 7. License
+## 5. License
 Distributed under the **MIT License**. See [LICENSE](./LICENSE) for details.
