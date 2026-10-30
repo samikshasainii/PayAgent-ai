@@ -3,11 +3,17 @@
 > A secure, policy-governed payout orchestration layer connecting autonomous LLM agents to PayPal's REST Payouts API.
 > PayAgent allows autonomous agents to receive payments for verified work without ever exposing API credentials or private keys to the agents themselves. Every payout is constrained by operator-defined budgets and recipients, protected by deterministic validation rules and LLM proof-of-work review, with automated escalation to human operators for high-risk transactions.
 
+**WHAT INSPIRED ME**
+> I want to get good with AI tools and gain development experience with AI, and since PayPal is so widely used, I thought this would be a great opportunity to make a bag.
+
+**CHALLENGES I FACED**
+> PayPal isn't available in my country so I had no clue how individuals use this app for payments. I explored their system and familiarised myself with the application for a solid week before I started working on a project.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PayPal SDK](https://img.shields.io/badge/PayPal-Sandbox%20Payouts%20API-003087?logo=paypal)](https://developer.paypal.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-v0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python)](https://python.org)
-[![CI](https://github.com/samikshasainii/PayPal_Hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/samikshasainii/PayPal_Hackathon/actions/workflows/ci.yml)
+[![CI](https://github.com/samikshasainii/PayAgent-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/samikshasainii/PayAgent-ai/actions/workflows/ci.yml)
 
 ---
 
@@ -92,7 +98,7 @@ For full architecture details, state machines, and threat models, see [docs/ARCH
 ├── scripts/                   # Tooling & Simulation Scripts
 │   ├── demo_agent.py          # Multi-scenario agent simulator for E2E testing
 │   ├── seed_hosted.py         # Remote database initializer
-│   └── snapshot_schema.py     # Database schema snapshot generator
+│   └── snapshot_schema.py     # Schema snapshot generator
 ├── tests/                     # Automated Test Suite
 │   ├── conftest.py            # Pytest async database and client fixtures
 │   ├── schema_snapshot.json   # Schema migration detection snapshot
@@ -108,7 +114,7 @@ For full architecture details, state machines, and threat models, see [docs/ARCH
 
 ---
 
-## 3. Quickstart
+## 4. Quickstart
 
 ### Prerequisites
 - Python 3.11+
@@ -117,8 +123,8 @@ For full architecture details, state machines, and threat models, see [docs/ARCH
 
 ### 1. Clone & Set Up Environment
 ```bash
-git clone https://github.com/samikshasainii/PayPal_Hackathon.git
-cd PayPal_Hackathon
+git clone https://github.com/samikshasainii/PayAgent-ai.git
+cd PayAgent-ai
 
 python -m venv .venv
 # Windows:
@@ -153,7 +159,7 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 4. Testing & Simulation
+## 5. Testing & Simulation
 
 Initialize test data and execute the automated demo agent:
 ```bash
@@ -171,5 +177,5 @@ pytest
 
 ---
 
-## 5. License
+## 6. License
 Distributed under the **MIT License**. See [LICENSE](./LICENSE) for details.
