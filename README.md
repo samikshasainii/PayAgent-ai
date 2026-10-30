@@ -43,7 +43,18 @@ For full architecture details, state machines, and threat models, see [docs/ARCH
 
 ---
 
-## 2. Repository Structure
+## 2. Tools & Sponsor Integrations
+
+* **PayPal Developer Platform**: Uses the sandbox REST Payouts API v1 for programmatic batch payouts, OAuth 2.0 with in-memory token caching, and real-time webhook listeners with cryptographic RSA signature verification.
+* **Google Gemini AI**: Utilizes `gemini-3.5-flash-lite` for async Gate 2 semantic Proof-of-Work reviews, prompt injection defense, and automated Human-in-the-Loop escalation.
+* **FastMCP (Model Context Protocol)**: Exposes native tool-calling endpoints (`list_my_tasks`, `request_payout`, `get_payout_status`) for seamless autonomous agent integration.
+* **AG Grid (Sponsor)**: Powers the live multi-grid Operator Console (`src/static/index.html`) with reactive sorting, filtering, and Server-Sent Events (SSE) live updates.
+* **Postman (Sponsor)**: Complete API test suites, preflight scenarios, and environment configs in `docs/postman/`.
+* **Render (Sponsor)**: Cloud infrastructure-as-code automated blueprint in `render.yaml`.
+
+---
+
+## 3. Repository Structure
 
 ```text
 ├── .github/
