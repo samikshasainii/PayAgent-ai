@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: setup-python@v5
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -27,5 +27,6 @@ jobs:
       - name: Run Test Suite
         env:
           ENVIRONMENT: test
+          PYTHONPATH: .
         run: |
-          pytest
+          pytest -m "not sandbox and not llm"
